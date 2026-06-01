@@ -1,0 +1,149 @@
+{
+  "name": "V2 - District to URA Batch Mapping",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        200,
+        0
+      ],
+      "notes": "Manual trigger only. Do not activate automatically."
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1Ct5JfYuWN7xg1zFRzHtQ8W64BTk3v7PAs1ypBrcmrS8/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Property Registry",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "read-property-registry",
+      "name": "Read Central - Property Registry",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        500,
+        0
+      ],
+      "notes": "Reads only from Clarity V2 - Central Database / Property Registry. Does not read boss sheets."
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction clean(value) {\n  if (value === undefined || value === null) return '';\n  return String(value).trim();\n}\n\nfunction districtNumber(district) {\n  const raw = clean(district).toUpperCase();\n  const match = raw.match(/D?(\\d{1,2})/);\n  if (!match) return null;\n  const num = Number(match[1]);\n  if (!Number.isFinite(num) || num < 1 || num > 28) return null;\n  return num;\n}\n\nfunction uraBatchFromDistrict(district) {\n  const num = districtNumber(district);\n  if (!num) return '';\n  if (num >= 1 && num <= 7) return '1';\n  if (num >= 8 && num <= 14) return '2';\n  if (num >= 15 && num <= 21) return '3';\n  if (num >= 22 && num <= 28) return '4';\n  return '';\n}\n\nfunction shouldUpdate(currentBatch, correctBatch) {\n  const current = clean(currentBatch);\n  if (!correctBatch) return false;\n  if (!current) return true;\n  if (current !== correctBatch) return true;\n  return false;\n}\n\nconst output = [];\n\nfor (const item of items) {\n  const row = item.json;\n\n  const sourceKey = clean(row['Source Key']);\n  const propertyRecordId = clean(row['Property Record ID']);\n  const district = clean(row['District']);\n  const currentBatch = clean(row['URA Batch']);\n  const correctBatch = uraBatchFromDistrict(district);\n\n  if (!sourceKey) continue;\n  if (!district) continue;\n  if (!correctBatch) continue;\n  if (!shouldUpdate(currentBatch, correctBatch)) continue;\n\n  output.push({\n    json: {\n      'Source Key': sourceKey,\n      'Property Record ID': propertyRecordId,\n      'District': district,\n      'URA Batch': correctBatch,\n    },\n  });\n}\n\nreturn output;\n"
+      },
+      "id": "map-district-to-ura-batch",
+      "name": "Map District to URA Batch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        0
+      ],
+      "notes": "Maps D01-D07 to batch 1, D08-D14 to batch 2, D15-D21 to batch 3, D22-D28 to batch 4. Outputs only rows that need URA Batch update."
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1Ct5JfYuWN7xg1zFRzHtQ8W64BTk3v7PAs1ypBrcmrS8/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Property Registry",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "Source Key"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "update-property-registry",
+      "name": "Update Central - Property Registry",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1100,
+        0
+      ],
+      "notes": "Writes only to Clarity V2 - Central Database / Property Registry. Matches on Source Key. Updates URA Batch only for rows that need mapping."
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read Central - Property Registry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Central - Property Registry": {
+      "main": [
+        [
+          {
+            "node": "Map District to URA Batch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map District to URA Batch": {
+      "main": [
+        [
+          {
+            "node": "Update Central - Property Registry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "3b208bd3-7c6f-41c3-a8a7-17535b049f14",
+  "meta": {
+    "module": "2C",
+    "description": "Maps Property Registry District values into URA transaction API batch numbers.",
+    "mapping": {
+      "D01-D07": "1",
+      "D08-D14": "2",
+      "D15-D21": "3",
+      "D22-D28": "4"
+    },
+    "safety": [
+      "Inactive by default",
+      "Manual trigger only",
+      "Reads and writes only Clarity V2 Central Database / Property Registry",
+      "Does not read or write boss sheets",
+      "No external API calls",
+      "Matches on Source Key",
+      "Only rows with populated District and missing/outdated URA Batch are updated"
+    ]
+  },
+  "tags": []
+}

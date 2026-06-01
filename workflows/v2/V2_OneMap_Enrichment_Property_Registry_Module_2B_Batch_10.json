@@ -1,0 +1,225 @@
+{
+  "name": "V2 - OneMap Enrichment - Property Registry Batch 10",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        200,
+        0
+      ],
+      "notes": "Manual trigger only for Module 2B batch test. Do not activate automatically."
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1Ct5JfYuWN7xg1zFRzHtQ8W64BTk3v7PAs1ypBrcmrS8/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Property Registry",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "read-property-registry",
+      "name": "Read Central - Property Registry",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        500,
+        0
+      ],
+      "notes": "Reads only from Clarity V2 - Central Database / Property Registry. Does not read boss sheets."
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst BATCH_LIMIT = 10;\n\nfunction clean(value) {\n  if (value === undefined || value === null) return '';\n  return String(value).trim();\n}\n\nfunction status(value) {\n  return clean(value).toLowerCase();\n}\n\nfunction buildSearchQuery(row) {\n  const blk = clean(row['Blk']);\n  const streetName = clean(row['Street Name']);\n  const projectName = clean(row['Project Name']);\n\n  if (blk && streetName) return `${blk} ${streetName}`.replace(/\\s+/g, ' ').trim();\n  if (projectName && streetName) return `${projectName} ${streetName}`.replace(/\\s+/g, ' ').trim();\n  if (projectName) return projectName.replace(/\\s+/g, ' ').trim();\n  return streetName.replace(/\\s+/g, ' ').trim();\n}\n\nconst output = [];\n\nfor (const item of items) {\n  const row = item.json;\n  const automationEligible = clean(row['Automation Eligible']).toLowerCase();\n  const oneMapStatus = status(row['OneMap Status']);\n\n  if (automationEligible !== 'yes') continue;\n  if (oneMapStatus && oneMapStatus !== 'pending' && oneMapStatus !== 'error') continue;\n\n  const query = buildSearchQuery(row);\n  if (!query) continue;\n\n  output.push({\n    json: {\n      ...row,\n      'OneMap Search Query': query,\n      'OneMap Status': 'Pending',\n      'OneMap Notes': 'Selected for Module 2B OneMap enrichment batch run',\n    },\n  });\n\n  if (output.length >= BATCH_LIMIT) break;\n}\n\nreturn output;\n"
+      },
+      "id": "select-batch-10",
+      "name": "Select Eligible Registry Rows - Batch 10",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        0
+      ],
+      "notes": "Filters eligible rows and returns up to 10 rows. Skips Matched, Needs Review, and No Match rows."
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://www.onemap.gov.sg/api/common/elastic/search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "searchVal",
+              "value": "={{ $json['OneMap Search Query'] }}"
+            },
+            {
+              "name": "returnGeom",
+              "value": "Y"
+            },
+            {
+              "name": "getAddrDetails",
+              "value": "Y"
+            },
+            {
+              "name": "pageNum",
+              "value": "1"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "onemap-search-api",
+      "name": "OneMap Search API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        0
+      ],
+      "notes": "OneMap API call. Select HTTP Header Auth credential with header name Authorization and the current OneMap token."
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction clean(value) {\n  if (value === undefined || value === null) return '';\n  return String(value).trim();\n}\n\nfunction singaporeTimestamp() {\n  const now = new Date();\n  const singaporeTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Singapore' }));\n  const yyyy = singaporeTime.getFullYear();\n  const mm = String(singaporeTime.getMonth() + 1).padStart(2, '0');\n  const dd = String(singaporeTime.getDate()).padStart(2, '0');\n  const hh = String(singaporeTime.getHours()).padStart(2, '0');\n  const min = String(singaporeTime.getMinutes()).padStart(2, '0');\n  return `${yyyy}-${mm}-${dd} ${hh}:${min}`;\n}\n\nfunction normalise(value) {\n  return clean(value).toUpperCase().replace(/[^A-Z0-9 ]/g, ' ').replace(/\\s+/g, ' ').trim();\n}\n\nfunction tokenSet(value) {\n  return new Set(normalise(value).split(' ').filter(Boolean));\n}\n\nfunction confidenceFor(query, result) {\n  const queryTokens = tokenSet(query);\n  const resultTokens = tokenSet(`${result.ADDRESS || ''} ${result.SEARCHVAL || ''}`);\n  if (!queryTokens.size || !resultTokens.size) return '';\n\n  let overlap = 0;\n  for (const token of queryTokens) {\n    if (resultTokens.has(token)) overlap += 1;\n  }\n\n  const ratio = overlap / queryTokens.size;\n  if (ratio >= 0.9) return 'High';\n  if (ratio >= 0.6) return 'Medium';\n  return 'Low';\n}\n\nfunction oneMapStatusFromConfidence(confidence, resultCount) {\n  if (!resultCount) return 'No Match';\n  if (confidence === 'High') return 'Matched';\n  return 'Needs Review';\n}\n\nfunction districtFromPostal(postal) {\n  const firstTwo = clean(postal).padStart(6, '0').slice(0, 2);\n  const map = {\n    '01': '01', '02': '01', '03': '01', '04': '01', '05': '01', '06': '01',\n    '07': '02', '08': '02',\n    '14': '03', '15': '03', '16': '03',\n    '09': '04', '10': '04',\n    '11': '05', '12': '05', '13': '05',\n    '17': '06',\n    '18': '07', '19': '07',\n    '20': '08', '21': '08',\n    '22': '09', '23': '09',\n    '24': '10', '25': '10', '26': '10', '27': '10',\n    '28': '11', '29': '11', '30': '11',\n    '31': '12', '32': '12', '33': '12',\n    '34': '13', '35': '13', '36': '13', '37': '13',\n    '38': '14', '39': '14', '40': '14', '41': '14',\n    '42': '15', '43': '15', '44': '15', '45': '15',\n    '46': '16', '47': '16', '48': '16',\n    '49': '17', '50': '17', '81': '17',\n    '51': '18', '52': '18',\n    '53': '19', '54': '19', '55': '19', '82': '19',\n    '56': '20', '57': '20',\n    '58': '21', '59': '21',\n    '60': '22', '61': '22', '62': '22', '63': '22', '64': '22',\n    '65': '23', '66': '23', '67': '23', '68': '23',\n    '69': '24', '70': '24', '71': '24',\n    '72': '25', '73': '25',\n    '77': '26', '78': '26',\n    '75': '27', '76': '27',\n    '79': '28', '80': '28'\n  };\n  return map[firstTwo] ? `D${map[firstTwo]}` : '';\n}\n\nconst selectedRows = $('Select Eligible Registry Rows - Batch 10').all();\nconst now = singaporeTimestamp();\nconst output = [];\n\nfor (let i = 0; i < items.length; i++) {\n  const selectedRow = selectedRows[i]?.json || {};\n  const response = items[i]?.json || {};\n\n  const baseUpdate = {\n    'Source Key': selectedRow['Source Key'],\n    'Property Record ID': selectedRow['Property Record ID'],\n    'OneMap Search Query': selectedRow['OneMap Search Query'],\n    'OneMap Last Updated': now,\n  };\n\n  if (!baseUpdate['Source Key']) continue;\n\n  if (response.error || response.statusCode >= 400) {\n    output.push({\n      json: {\n        ...baseUpdate,\n        'OneMap Status': 'Error',\n        'OneMap Notes': `OneMap API error: ${clean(response.error || response.message || response.statusCode)}`,\n      },\n    });\n    continue;\n  }\n\n  const results = Array.isArray(response.results) ? response.results : [];\n  const best = results[0] || null;\n\n  if (!best) {\n    output.push({\n      json: {\n        ...baseUpdate,\n        'OneMap Status': 'No Match',\n        'OneMap Notes': 'No OneMap search results returned for query',\n      },\n    });\n    continue;\n  }\n\n  const postal = clean(best.POSTAL).padStart(6, '0');\n  const district = districtFromPostal(postal);\n  const confidence = confidenceFor(selectedRow['OneMap Search Query'], best);\n  const matchStatus = oneMapStatusFromConfidence(confidence, results.length);\n\n  output.push({\n    json: {\n      ...baseUpdate,\n      'Postal Code': postal,\n      'OneMap Matched Address': clean(best.ADDRESS || best.SEARCHVAL),\n      'OneMap Building': clean(best.BUILDING) === 'NIL' ? '' : clean(best.BUILDING),\n      'OneMap Latitude': clean(best.LATITUDE),\n      'OneMap Longitude': clean(best.LONGITUDE || best.LONGTITUDE),\n      'Address Match Confidence': confidence,\n      'OneMap Status': matchStatus,\n      'OneMap Last Updated': now,\n      'OneMap Notes': `Matched first OneMap result from ${results.length} returned result(s)`,\n      'District': district,\n      'URA Batch': '',\n    },\n  });\n}\n\nreturn output;\n"
+      },
+      "id": "prepare-batch-registry-updates",
+      "name": "Prepare Batch Registry Updates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1400,
+        0
+      ],
+      "notes": "Maps each OneMap response back to the matching selected row by item index, then prepares update rows."
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1Ct5JfYuWN7xg1zFRzHtQ8W64BTk3v7PAs1ypBrcmrS8/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Property Registry",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "Source Key"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "update-property-registry",
+      "name": "Update Central - Property Registry",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1700,
+        0
+      ],
+      "notes": "Writes only to Clarity V2 - Central Database / Property Registry. Matches on Source Key."
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read Central - Property Registry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Central - Property Registry": {
+      "main": [
+        [
+          {
+            "node": "Select Eligible Registry Rows - Batch 10",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Eligible Registry Rows - Batch 10": {
+      "main": [
+        [
+          {
+            "node": "OneMap Search API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OneMap Search API": {
+      "main": [
+        [
+          {
+            "node": "Prepare Batch Registry Updates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Batch Registry Updates": {
+      "main": [
+        [
+          {
+            "node": "Update Central - Property Registry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "cc7600b4-ca5f-42f5-a060-b23137f3d493",
+  "meta": {
+    "module": "2B",
+    "description": "Batch 10 OneMap enrichment workflow for Clarity V2 Property Registry.",
+    "safety": [
+      "Inactive by default",
+      "Manual trigger only",
+      "Reads and writes only Clarity V2 Central Database / Property Registry",
+      "Does not read or write boss sheets",
+      "Processes up to 10 eligible rows",
+      "Only external API call is OneMap Search API",
+      "Uses HTTP Header Auth credential placeholder; no token included in JSON"
+    ]
+  },
+  "tags": []
+}
