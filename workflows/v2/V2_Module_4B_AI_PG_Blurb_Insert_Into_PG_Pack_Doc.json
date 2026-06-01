@@ -1,0 +1,298 @@
+{
+  "name": "V2 - Module 4B - AI PG Blurb Insert Into PG Pack Doc",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        200,
+        0
+      ],
+      "notes": "Manual trigger only for Module 4B MVP. Do not activate automatically."
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1Ct5JfYuWN7xg1zFRzHtQ8W64BTk3v7PAs1ypBrcmrS8/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Property Registry",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "read-property-registry",
+      "name": "Read Central - Property Registry",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        500,
+        0
+      ],
+      "notes": "Reads only from Clarity V2 - Central Database / Property Registry. Does not read boss sheets."
+    },
+    {
+      "parameters": {
+        "jsCode": "const BATCH_LIMIT = 1;\n\nfunction clean(value) {\n  if (value === undefined || value === null) return '';\n  return String(value).trim();\n}\n\nfunction status(value) {\n  return clean(value).toLowerCase();\n}\n\nfunction isActiveRoute(value) {\n  const route = status(value);\n  return route === 'active listing' || route === 'active listing + cma';\n}\n\nfunction hasExistingAiBlurb(row) {\n  const pgPackStatus = status(row['PG Pack Status']);\n  const pgPackNotes = status(row['PG Pack Notes']);\n  return (\n    pgPackStatus === 'ai blurb drafted' ||\n    pgPackStatus === 'ai blurb inserted' ||\n    pgPackStatus === 'ready for pg review' ||\n    pgPackNotes.includes('module 4b completed')\n  );\n}\n\nconst output = [];\n\nfor (const item of items) {\n  const row = item.json;\n\n  if (!isActiveRoute(row['Clarity Route'])) continue;\n  if (clean(row['Automation Eligible']).toLowerCase() !== 'yes') continue;\n  if (!clean(row['PG Blurb Output Link'])) continue;\n  if (hasExistingAiBlurb(row)) continue;\n\n  output.push({\n    json: {\n      ...row,\n      'Module 4B Selected': 'Yes',\n      'Module 4B Notes': 'Selected for AI PG blurb generation and insertion into existing PG Pack Google Doc',\n    },\n  });\n\n  if (output.length >= BATCH_LIMIT) break;\n}\n\nreturn output;"
+      },
+      "id": "select-module-4b-row",
+      "name": "Select Module 4B Row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        0
+      ],
+      "notes": "Selects only 1 active listing with an existing PG Pack Google Doc and no completed AI blurb marker."
+    },
+    {
+      "parameters": {
+        "jsCode": "const OPENAI_MODEL = 'gpt-4.1-mini';\nconst STANDARD_CTA = 'Contact us to arrange a viewing today.';\n\nfunction clean(value) {\n  if (value === undefined || value === null) return '';\n  return String(value).trim();\n}\n\nfunction pick(row, names) {\n  for (const name of names) {\n    const value = clean(row[name]);\n    if (value) return value;\n  }\n  return '';\n}\n\nfunction numberFrom(value) {\n  const raw = clean(value).replace(/,/g, '');\n  const match = raw.match(/\\d+(\\.\\d+)?/);\n  return match ? Number(match[0]) : null;\n}\n\nfunction privacyFloorPhrase(value) {\n  const n = numberFrom(value);\n  if (!n) return '';\n  if (n >= 30) return 'very high-floor';\n  if (n >= 20) return 'high-floor';\n  if (n >= 15) return 'above 15th floor';\n  if (n >= 10) return 'above 10th floor';\n  if (n >= 6) return 'mid-floor';\n  if (n >= 2) return 'low-floor';\n  return '';\n}\n\nfunction extractDocId(url) {\n  const text = clean(url);\n  const match = text.match(/\\/document\\/d\\/([a-zA-Z0-9_-]+)/);\n  if (match) return match[1];\n  return text;\n}\n\nfunction compactObject(obj) {\n  const out = {};\n  for (const [key, value] of Object.entries(obj)) {\n    const cleaned = clean(value);\n    if (cleaned) out[key] = cleaned;\n  }\n  return out;\n}\n\nconst output = [];\n\nfor (const item of items) {\n  const row = item.json;\n\n  const projectName = pick(row, ['Project Name', 'Project', 'Development Name', 'Building Name']);\n  const listingType = pick(row, ['Listing Type', 'Sale/Rent', 'Transaction Type']);\n  const propertyType = pick(row, ['Property Type', 'Property Category', 'Type']);\n  const bedrooms = pick(row, ['Bedrooms', 'Bedroom', 'No. of Bedrooms', 'Beds']);\n  const bathrooms = pick(row, ['Bathrooms', 'Bathroom', 'No. of Bathrooms', 'Baths']);\n  const floorArea = pick(row, ['Floor Area', 'Size', 'Area', 'Built-up Area', 'Approx Size']);\n  const askingPrice = pick(row, ['Asking Price', 'Price', 'Listing Price', 'Rental Asking', 'Rent']);\n  const psf = pick(row, ['Asking PSF', 'PSF', 'Price PSF', 'Rent PSF']);\n  const tenure = pick(row, ['Tenure']);\n  const district = pick(row, ['District']);\n  const streetName = pick(row, ['Street Name', 'Street', 'Address']);\n  const matchedAddress = pick(row, ['OneMap Matched Address', 'Matched Address']);\n  const postalCode = pick(row, ['Postal Code', 'Postal']);\n  const floorWording = privacyFloorPhrase(pick(row, ['Level', 'Floor', 'Storey', 'Floor Level']));\n\n  const facts = compactObject({\n    'Project / development': projectName,\n    'Listing type': listingType,\n    'Property type': propertyType,\n    'Bedrooms': bedrooms,\n    'Bathrooms': bathrooms,\n    'Floor area': floorArea,\n    'Asking price / rent': askingPrice,\n    'PSF': psf,\n    'Tenure': tenure,\n    'District': district,\n    'Street / area': streetName || matchedAddress,\n    'Postal code': postalCode,\n    'Privacy-safe floor wording': floorWording,\n  });\n\n  const userPrompt = [\n    'Generate a PropertyGuru-ready listing blurb for this Singapore property.',\n    '',\n    'Property facts:',\n    JSON.stringify(facts, null, 2),\n    '',\n    'Mandatory output rules:',\n    '- Output only the final listing copy.',\n    '- Start with one concise opening paragraph.',\n    '- Then use dash-led selling points, one point per line.',\n    `- End with this CTA: \"${STANDARD_CTA}\"`,\n    '- Do not use a heading such as \"Why this unit\".',\n    '- Do not reveal exact unit number, exact stack, or exact level.',\n    '- Use only the privacy-safe floor wording provided, if useful.',\n    '- Do not say \"top floor\".',\n    '- Do not claim unverified views, renovated condition, premium stack, corner stack, privacy, layout advantages, or floorplan attributes unless directly supported by the facts.',\n    '- If a point is not supported by the facts, omit it rather than guessing.',\n    '- Keep the tone professional, clear, and suitable for Singapore PropertyGuru.',\n    '- Keep it concise enough for a listing description.'\n  ].join('\\n');\n\n  output.push({\n    json: {\n      ...row,\n      'PG Pack Document ID': extractDocId(row['PG Blurb Output Link']),\n      'OpenAI Model': OPENAI_MODEL,\n      'OpenAI Request Body': {\n        model: OPENAI_MODEL,\n        input: [\n          {\n            role: 'system',\n            content: 'You are a careful Singapore real estate listing copywriter. You write privacy-safe PropertyGuru listing copy and never invent unit-specific claims.'\n          },\n          {\n            role: 'user',\n            content: userPrompt\n          }\n        ],\n        temperature: 0.35,\n        max_output_tokens: 900\n      }\n    },\n  });\n}\n\nreturn output;"
+      },
+      "id": "build-openai-request",
+      "name": "Build OpenAI PG Blurb Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        0
+      ],
+      "notes": "Builds a privacy-safe prompt from Property Registry fields. Exact unit number is not passed to the AI prompt."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json['OpenAI Request Body'] }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "openai-generate-pg-blurb",
+      "name": "OpenAI - Generate PG Blurb",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1400,
+        0
+      ],
+      "notes": "Select an HTTP Header Auth credential owned by jameskoh.kjk@gmail.com. Header name: Authorization. Header value: Bearer YOUR_OPENAI_API_KEY. No API key is stored in this workflow JSON."
+    },
+    {
+      "parameters": {
+        "jsCode": "function clean(value) {\n  if (value === undefined || value === null) return '';\n  return String(value).trim();\n}\n\nfunction singaporeTimestamp() {\n  const now = new Date();\n  const singaporeTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Singapore' }));\n  const yyyy = singaporeTime.getFullYear();\n  const mm = String(singaporeTime.getMonth() + 1).padStart(2, '0');\n  const dd = String(singaporeTime.getDate()).padStart(2, '0');\n  const hh = String(singaporeTime.getHours()).padStart(2, '0');\n  const min = String(singaporeTime.getMinutes()).padStart(2, '0');\n  return `${yyyy}-${mm}-${dd} ${hh}:${min}`;\n}\n\nfunction extractOpenAiText(response) {\n  if (typeof response.output_text === 'string') return response.output_text;\n\n  if (Array.isArray(response.output)) {\n    const parts = [];\n    for (const outputItem of response.output) {\n      if (Array.isArray(outputItem.content)) {\n        for (const contentItem of outputItem.content) {\n          if (typeof contentItem.text === 'string') parts.push(contentItem.text);\n          if (typeof contentItem.output_text === 'string') parts.push(contentItem.output_text);\n        }\n      }\n    }\n    if (parts.length) return parts.join('\\n').trim();\n  }\n\n  if (Array.isArray(response.choices)) {\n    const text = response.choices\n      .map(choice => choice?.message?.content || choice?.text || '')\n      .filter(Boolean)\n      .join('\\n');\n    if (text) return text;\n  }\n\n  return '';\n}\n\nfunction stripUnsafeUnitReferences(text) {\n  let out = clean(text);\n\n  // Remove common exact Singapore unit reference patterns, e.g. #32-16, #08-01, Unit #12-34.\n  out = out.replace(/\\bUnit\\s*#?\\s*\\d{1,2}\\s*[-/]\\s*\\d{1,4}\\b/gi, 'unit');\n  out = out.replace(/#\\s*\\d{1,2}\\s*[-/]\\s*\\d{1,4}\\b/g, '');\n  out = out.replace(/\\b\\d{1,2}(st|nd|rd|th)\\s+floor\\s+unit\\b/gi, 'privacy-safe floor unit');\n\n  // Remove forbidden heading if the model added it.\n  out = out.replace(/^\\s*(why this unit|why this could be your next home)\\s*:?\\s*$/gim, '');\n\n  return out.replace(/\\n{3,}/g, '\\n\\n').trim();\n}\n\nfunction ensureDashLedPoints(text) {\n  const lines = text.split('\\n');\n  return lines.map(line => {\n    const trimmed = line.trim();\n    if (!trimmed) return '';\n    if (/^[•*]\\s+/.test(trimmed)) return '- ' + trimmed.replace(/^[•*]\\s+/, '');\n    return line;\n  }).join('\\n').replace(/\\n{3,}/g, '\\n\\n').trim();\n}\n\nconst selectedRows = $('Build OpenAI PG Blurb Request').all();\nconst now = singaporeTimestamp();\nconst output = [];\n\nfor (let i = 0; i < items.length; i++) {\n  const selectedRow = selectedRows[i]?.json || {};\n  const response = items[i]?.json || {};\n  let blurb = extractOpenAiText(response);\n\n  if (!blurb) {\n    throw new Error(`Module 4B: OpenAI response did not contain usable listing copy for Source Key ${clean(selectedRow['Source Key'])}`);\n  }\n\n  blurb = ensureDashLedPoints(stripUnsafeUnitReferences(blurb));\n\n  const docInsertText = [\n    '',\n    '',\n    '---',\n    '',\n    'PROPERTYGURU LISTING BLURB - AI DRAFT',\n    `Generated by Clarity V2 Module 4B: ${now}`,\n    '',\n    blurb,\n    '',\n    'Internal review note: Please check all claims before publishing to PropertyGuru. Exact unit number has been intentionally excluded from the listing copy.',\n    ''\n  ].join('\\n');\n\n  output.push({\n    json: {\n      ...selectedRow,\n      'Generated PG Blurb': blurb,\n      'Doc Insert Text': docInsertText,\n      'PG Pack Last Updated': now,\n      'PG Pack Status': 'AI Blurb Drafted',\n      'PG Pack Review Status': 'Needs Review',\n      'PG Pack Notes': `Module 4B completed: AI PG blurb inserted into existing PG Pack Google Doc using ${clean(selectedRow['OpenAI Model']) || 'OpenAI'}. Review required before publishing.`,\n    },\n  });\n}\n\nreturn output;"
+      },
+      "id": "prepare-doc-insert",
+      "name": "Prepare PG Blurb Doc Insert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1700,
+        0
+      ],
+      "notes": "Extracts OpenAI response text, applies privacy-safety cleanup, and prepares the text block for Google Docs insertion."
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "operation": "update",
+        "documentURL": "={{ $json['PG Blurb Output Link'] }}",
+        "actionsUi": {
+          "actionFields": [
+            {
+              "action": "insert",
+              "object": "text",
+              "text": "={{ $json['Doc Insert Text'] }}",
+              "locationChoice": "endOfSegmentLocation",
+              "insertSegment": "body"
+            }
+          ]
+        },
+        "updateFields": {},
+        "simple": true
+      },
+      "id": "insert-pg-blurb-google-doc",
+      "name": "Insert PG Blurb Into Existing PG Pack Doc",
+      "type": "n8n-nodes-base.googleDocs",
+      "typeVersion": 2,
+      "position": [
+        2000,
+        0
+      ],
+      "notes": "Uses Google Docs OAuth2 credential owned by jameskoh.kjk@gmail.com. Inserts the generated blurb at the end of the existing PG Pack Google Doc."
+    },
+    {
+      "parameters": {
+        "jsCode": "const preparedRows = $('Prepare PG Blurb Doc Insert').all();\n\nconst output = [];\n\nfor (let i = 0; i < items.length; i++) {\n  const prepared = preparedRows[i]?.json || {};\n  const docResponse = items[i]?.json || {};\n  const sourceKey = prepared['Source Key'];\n\n  if (!sourceKey) continue;\n\n  output.push({\n    json: {\n      'Source Key': sourceKey,\n      'Property Record ID': prepared['Property Record ID'],\n      'PG Pack Status': prepared['PG Pack Status'],\n      'PG Blurb Output Link': prepared['PG Blurb Output Link'],\n      'PG Pack Last Updated': prepared['PG Pack Last Updated'],\n      'PG Pack Review Status': prepared['PG Pack Review Status'],\n      'PG Pack Notes': prepared['PG Pack Notes'],\n      'PG Pack Document ID': prepared['PG Pack Document ID'] || docResponse.documentId || '',\n    },\n  });\n}\n\nreturn output;"
+      },
+      "id": "prepare-registry-update",
+      "name": "Prepare Registry Update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2300,
+        0
+      ],
+      "notes": "Prepares only the central Property Registry fields to update after successful Google Doc insertion."
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1Ct5JfYuWN7xg1zFRzHtQ8W64BTk3v7PAs1ypBrcmrS8/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Property Registry",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "Source Key"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "update-property-registry",
+      "name": "Update Central - Property Registry",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2600,
+        0
+      ],
+      "notes": "Writes only to Clarity V2 - Central Database / Property Registry. Matches on Source Key. Does not write to boss sheets."
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read Central - Property Registry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Central - Property Registry": {
+      "main": [
+        [
+          {
+            "node": "Select Module 4B Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Module 4B Row": {
+      "main": [
+        [
+          {
+            "node": "Build OpenAI PG Blurb Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build OpenAI PG Blurb Request": {
+      "main": [
+        [
+          {
+            "node": "OpenAI - Generate PG Blurb",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI - Generate PG Blurb": {
+      "main": [
+        [
+          {
+            "node": "Prepare PG Blurb Doc Insert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare PG Blurb Doc Insert": {
+      "main": [
+        [
+          {
+            "node": "Insert PG Blurb Into Existing PG Pack Doc",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert PG Blurb Into Existing PG Pack Doc": {
+      "main": [
+        [
+          {
+            "node": "Prepare Registry Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Registry Update": {
+      "main": [
+        [
+          {
+            "node": "Update Central - Property Registry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "e1935775-27e9-4974-83d5-d4127c861e54",
+  "meta": {
+    "module": "4B",
+    "description": "AI-generated PropertyGuru blurb from Clarity V2 Property Registry, inserted into existing PG Pack Google Doc.",
+    "safety": [
+      "Inactive by default",
+      "Manual trigger only",
+      "Reads and writes only Clarity V2 Central Database / Property Registry",
+      "Does not read or write boss sheets",
+      "Processes 1 eligible active listing per run",
+      "Uses existing PG Blurb Output Link from Module 4A",
+      "Does not pass exact unit number into the OpenAI prompt",
+      "Applies privacy-safety cleanup before inserting into Google Docs",
+      "Requires human review before publishing"
+    ]
+  },
+  "tags": []
+}
