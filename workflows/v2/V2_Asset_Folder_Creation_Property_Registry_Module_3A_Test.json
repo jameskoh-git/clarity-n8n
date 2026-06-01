@@ -1,0 +1,206 @@
+{
+  "name": "V2 - Asset Folder Creation - Property Registry Test",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        200,
+        0
+      ],
+      "notes": "Manual trigger only for Module 3A test. Do not activate automatically."
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1Ct5JfYuWN7xg1zFRzHtQ8W64BTk3v7PAs1ypBrcmrS8/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Property Registry",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "read-property-registry",
+      "name": "Read Central - Property Registry",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        500,
+        0
+      ],
+      "notes": "Reads only from Clarity V2 - Central Database / Property Registry. Does not read boss sheets."
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst TEST_LIMIT = 1;\n\nfunction clean(value) {\n  if (value === undefined || value === null) return '';\n  return String(value).trim();\n}\n\nfunction sgTimestamp() {\n  const now = new Date();\n  const singaporeTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Singapore' }));\n  const yyyy = singaporeTime.getFullYear();\n  const mm = String(singaporeTime.getMonth() + 1).padStart(2, '0');\n  const dd = String(singaporeTime.getDate()).padStart(2, '0');\n  const hh = String(singaporeTime.getHours()).padStart(2, '0');\n  const min = String(singaporeTime.getMinutes()).padStart(2, '0');\n  return `${yyyy}-${mm}-${dd} ${hh}:${min}`;\n}\n\nfunction padUnitPart(value) {\n  const raw = clean(value);\n  if (!raw) return '';\n  if (/^\\d+$/.test(raw) && raw.length === 1) return `0${raw}`;\n  return raw;\n}\n\nfunction unitSuffix(level, unit) {\n  const lvl = padUnitPart(level);\n  const unt = padUnitPart(unit);\n\n  if (lvl && unt) return `#${lvl}-${unt}`;\n  if (lvl && !unt) return `#${lvl}`;\n  if (!lvl && unt) return `#-${unt}`;\n  return '';\n}\n\nfunction safeJoin(parts, separator = ' ') {\n  return parts\n    .map(clean)\n    .filter(Boolean)\n    .join(separator)\n    .replace(/\\s+/g, ' ')\n    .trim();\n}\n\nfunction buildFolderName(row) {\n  const recordId = clean(row['Property Record ID']);\n  const segment = clean(row['Property Segment']).toLowerCase();\n  const projectName = clean(row['Project Name']);\n  const blk = clean(row['Blk']);\n  const streetName = clean(row['Street Name']);\n  const level = clean(row['Level']);\n  const unit = clean(row['Unit']);\n  const type = clean(row['Type']);\n  const suffix = unitSuffix(level, unit);\n\n  let base = '';\n\n  if (segment === 'hdb') {\n    base = safeJoin([blk, streetName]);\n  } else if (segment === 'landed') {\n    base = projectName || safeJoin([blk, streetName]) || streetName;\n    if (type && !base.toLowerCase().includes(type.toLowerCase())) {\n      base = `${base} - ${type}`;\n    }\n    // Landed records usually do not need unit suffix unless level/unit is provided.\n    return safeJoin([base, suffix]) || recordId || 'Unnamed Property';\n  } else {\n    // Condo, commercial, industrial and fallback.\n    base = projectName || safeJoin([blk, streetName]) || streetName;\n  }\n\n  return safeJoin([base, suffix]) || recordId || 'Unnamed Property';\n}\n\nconst output = [];\n\nfor (const item of items) {\n  const row = item.json;\n\n  const route = clean(row['Clarity Route']);\n  const automationEligible = clean(row['Automation Eligible']).toLowerCase();\n  const existingLink = clean(row['Asset Folder Link']);\n  const assetStatus = clean(row['Asset Folder Status']).toLowerCase();\n\n  const isActiveRoute = route === 'Active Listing' || route === 'Active Listing + CMA';\n  if (!isActiveRoute) continue;\n  if (automationEligible !== 'yes') continue;\n  if (existingLink) continue;\n  if (assetStatus && assetStatus !== 'pending' && assetStatus !== 'error') continue;\n\n  const folderName = buildFolderName(row);\n\n  output.push({\n    json: {\n      ...row,\n      'Asset Folder Name': folderName,\n      'Asset Folder Last Updated': sgTimestamp(),\n      'Asset Folder Notes': 'Selected for Module 3A asset folder creation test run',\n    },\n  });\n\n  if (output.length >= TEST_LIMIT) break;\n}\n\nreturn output;\n"
+      },
+      "id": "select-one-asset-row",
+      "name": "Select 1 Eligible Asset Row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        0
+      ],
+      "notes": "Filters Active Listing / Active Listing + CMA rows, skips rows with existing Asset Folder Link, returns only 1 row for this test."
+    },
+    {
+      "parameters": {
+        "resource": "folder",
+        "name": "={{ $json['Asset Folder Name'] }}",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "1qA-DdiVE0myBgdwvOvsemI4bwWr3cRYj",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "create-asset-folder",
+      "name": "Create Drive - Asset Folder",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1100,
+        0
+      ],
+      "notes": "Creates one folder inside Clarity V2 - Production / 02 Listing Asset Folders. Parent folder ID: 1qA-DdiVE0myBgdwvOvsemI4bwWr3cRYj"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction clean(value) {\n  if (value === undefined || value === null) return '';\n  return String(value).trim();\n}\n\nfunction sgTimestamp() {\n  const now = new Date();\n  const singaporeTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Singapore' }));\n  const yyyy = singaporeTime.getFullYear();\n  const mm = String(singaporeTime.getMonth() + 1).padStart(2, '0');\n  const dd = String(singaporeTime.getDate()).padStart(2, '0');\n  const hh = String(singaporeTime.getHours()).padStart(2, '0');\n  const min = String(singaporeTime.getMinutes()).padStart(2, '0');\n  return `${yyyy}-${mm}-${dd} ${hh}:${min}`;\n}\n\nconst selectedRow = $('Select 1 Eligible Asset Row').first().json;\nconst driveResult = items[0]?.json || {};\n\nconst folderId = clean(driveResult.id);\nconst folderName = clean(driveResult.name || selectedRow['Asset Folder Name']);\nconst folderLink = clean(driveResult.webViewLink) || (folderId ? `https://drive.google.com/drive/folders/${folderId}` : '');\n\nif (!folderId && !folderLink) {\n  return [{\n    json: {\n      'Source Key': selectedRow['Source Key'],\n      'Property Record ID': selectedRow['Property Record ID'],\n      'Asset Folder Status': 'Error',\n      'Asset Folder Last Updated': sgTimestamp(),\n      'Asset Folder Notes': 'Google Drive folder creation did not return a folder ID or link',\n    },\n  }];\n}\n\nreturn [{\n  json: {\n    'Source Key': selectedRow['Source Key'],\n    'Property Record ID': selectedRow['Property Record ID'],\n    'Asset Folder Status': 'Created',\n    'Asset Folder Link': folderLink,\n    'Asset Folder Last Updated': sgTimestamp(),\n    'Asset Folder Notes': `Created asset folder: ${folderName}`,\n  },\n}];\n"
+      },
+      "id": "prepare-registry-update",
+      "name": "Prepare Registry Asset Update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1400,
+        0
+      ],
+      "notes": "Prepares Asset Folder Status/Link/Last Updated/Notes update for the same Property Registry row."
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1Ct5JfYuWN7xg1zFRzHtQ8W64BTk3v7PAs1ypBrcmrS8/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Property Registry",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "Source Key"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "update-property-registry",
+      "name": "Update Central - Property Registry",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1700,
+        0
+      ],
+      "notes": "Writes only to Clarity V2 - Central Database / Property Registry. Matches on Source Key."
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read Central - Property Registry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Central - Property Registry": {
+      "main": [
+        [
+          {
+            "node": "Select 1 Eligible Asset Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select 1 Eligible Asset Row": {
+      "main": [
+        [
+          {
+            "node": "Create Drive - Asset Folder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Drive - Asset Folder": {
+      "main": [
+        [
+          {
+            "node": "Prepare Registry Asset Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Registry Asset Update": {
+      "main": [
+        [
+          {
+            "node": "Update Central - Property Registry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "c6069049-2453-4fdd-a858-59553d6d8bb5",
+  "meta": {
+    "module": "3A",
+    "description": "Creates one Google Drive asset folder for an eligible active listing from Clarity V2 Property Registry.",
+    "parentFolderId": "1qA-DdiVE0myBgdwvOvsemI4bwWr3cRYj",
+    "safety": [
+      "Inactive by default",
+      "Manual trigger only",
+      "Reads and writes only Clarity V2 Central Database / Property Registry",
+      "Does not read or write boss sheets",
+      "Creates only one folder for test mode",
+      "Skips rows with existing Asset Folder Link",
+      "Uses James-owned Clarity V2 production folder"
+    ]
+  },
+  "tags": []
+}
