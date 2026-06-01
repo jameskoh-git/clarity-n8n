@@ -1,0 +1,237 @@
+{
+  "name": "V2 - PG Listing Pack Draft Shell - Property Registry Test",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        200,
+        0
+      ],
+      "notes": "Manual trigger only for Module 4A test. Do not activate automatically."
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1Ct5JfYuWN7xg1zFRzHtQ8W64BTk3v7PAs1ypBrcmrS8/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Property Registry",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "read-property-registry",
+      "name": "Read Central - Property Registry",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        500,
+        0
+      ],
+      "notes": "Reads only from Clarity V2 - Central Database / Property Registry. Does not read boss sheets."
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst TEST_LIMIT = 1;\n\nfunction clean(value) {\n  if (value === undefined || value === null) return '';\n  return String(value).trim();\n}\n\nfunction sgTimestamp() {\n  const now = new Date();\n  const singaporeTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Singapore' }));\n  const yyyy = singaporeTime.getFullYear();\n  const mm = String(singaporeTime.getMonth() + 1).padStart(2, '0');\n  const dd = String(singaporeTime.getDate()).padStart(2, '0');\n  const hh = String(singaporeTime.getHours()).padStart(2, '0');\n  const min = String(singaporeTime.getMinutes()).padStart(2, '0');\n  return `${yyyy}-${mm}-${dd} ${hh}:${min}`;\n}\n\nfunction extractDriveFolderId(url) {\n  const raw = clean(url);\n  if (!raw) return '';\n  const match = raw.match(/\\/folders\\/([a-zA-Z0-9_-]+)/);\n  if (match) return match[1];\n  return raw;\n}\n\nfunction padUnitPart(value) {\n  const raw = clean(value);\n  if (!raw) return '';\n  if (/^\\d+$/.test(raw) && raw.length === 1) return `0${raw}`;\n  return raw;\n}\n\nfunction unitSuffix(level, unit) {\n  const lvl = padUnitPart(level);\n  const unt = padUnitPart(unit);\n  if (lvl && unt) return `#${lvl}-${unt}`;\n  if (lvl && !unt) return `#${lvl}`;\n  if (!lvl && unt) return `#-${unt}`;\n  return '';\n}\n\nfunction safeJoin(parts, separator = ' ') {\n  return parts.map(clean).filter(Boolean).join(separator).replace(/\\s+/g, ' ').trim();\n}\n\nfunction propertyDisplayName(row) {\n  const segment = clean(row['Property Segment']).toLowerCase();\n  const projectName = clean(row['Project Name']);\n  const blk = clean(row['Blk']);\n  const streetName = clean(row['Street Name']);\n  const suffix = unitSuffix(row['Level'], row['Unit']);\n\n  if (segment === 'hdb') return safeJoin([safeJoin([blk, streetName]), suffix]);\n  return safeJoin([projectName || safeJoin([blk, streetName]) || streetName, suffix]);\n}\n\nfunction privacySafeFloor(level) {\n  const raw = clean(level);\n  const n = Number(raw);\n  if (!Number.isFinite(n)) return raw ? `Level ${raw}` : 'Floor not stated';\n\n  if (n >= 30) return 'very high floor';\n  if (n >= 20) return 'high floor';\n  if (n >= 10) return 'mid-high floor';\n  if (n >= 4) return 'mid floor';\n  return 'low floor';\n}\n\nfunction formatPrice(row) {\n  const raw = clean(row['Price']);\n  if (!raw) return '';\n  const num = Number(raw.replace(/[$,\\s]/g, ''));\n  if (!Number.isFinite(num)) return raw;\n  return '$' + num.toLocaleString('en-SG');\n}\n\nfunction pgDocTitle(row) {\n  return `PG Listing Pack - ${propertyDisplayName(row)}`;\n}\n\nfunction buildDraftBody(row) {\n  const now = sgTimestamp();\n  const saleRent = clean(row['Sale / Rent']);\n  const segment = clean(row['Property Segment']);\n  const display = propertyDisplayName(row);\n  const priceLabel = saleRent === 'Rent' ? 'Asking Rent' : 'Asking Price';\n  const privacyFloor = privacySafeFloor(row['Level']);\n\n  return [\n    `PG Listing Pack Draft`,\n    ``,\n    `Property: ${display}`,\n    `Generated: ${now}`,\n    ``,\n    `Source Record`,\n    `Property Record ID: ${clean(row['Property Record ID'])}`,\n    `Source Sheet: ${clean(row['Source Sheet'])}`,\n    `Source Tab: ${clean(row['Source Tab'])}`,\n    `Clarity Route: ${clean(row['Clarity Route'])}`,\n    ``,\n    `Property Details`,\n    `Sale / Rent: ${saleRent}`,\n    `Property Segment: ${segment}`,\n    `Project Name: ${clean(row['Project Name'])}`,\n    `Block: ${clean(row['Blk'])}`,\n    `Street Name: ${clean(row['Street Name'])}`,\n    `Level / Unit: ${clean(row['Level'])}-${clean(row['Unit'])}`,\n    `Privacy-safe floor wording for PG copy: ${privacyFloor}`,\n    `Type: ${clean(row['Type'])}`,\n    `Size: ${clean(row['Size'])} sqft`,\n    `Bedrooms: ${clean(row['No. of BR'])}`,\n    `${priceLabel}: ${formatPrice(row)}`,\n    `PSF: ${clean(row['PSF'])}`,\n    `Tenure: ${clean(row['Tenure'])}`,\n    ``,\n    `Location / Enrichment`,\n    `Postal Code: ${clean(row['Postal Code'])}`,\n    `OneMap Matched Address: ${clean(row['OneMap Matched Address'])}`,\n    `District: ${clean(row['District'])}`,\n    `URA Batch: ${clean(row['URA Batch'])}`,\n    ``,\n    `Asset Folder`,\n    `${clean(row['Asset Folder Link'])}`,\n    ``,\n    `Draft PG Blurb Placeholder`,\n    `[Module 4B will insert the AI-generated PropertyGuru blurb here.]`,\n    ``,\n    `Review Checklist`,\n    `- Do not reveal exact unit number in final PG copy.`,\n    `- Use privacy-safe floor wording instead of exact level where suitable.`,\n    `- Verify bedrooms, bathrooms, floorplan and photos before publishing.`,\n    `- Avoid overclaiming view, privacy, condition, or stack attributes unless verified.`,\n    `- Final copy should follow the approved PG format: concise opening paragraph, dash-led selling points, and CTA.`,\n    ``,\n  ].join('\\n');\n}\n\nconst output = [];\n\nfor (const item of items) {\n  const row = item.json;\n\n  const route = clean(row['Clarity Route']);\n  const automationEligible = clean(row['Automation Eligible']).toLowerCase();\n  const pgStatus = clean(row['PG Pack Status']).toLowerCase();\n  const existingPgLink = clean(row['PG Blurb Output Link']);\n  const assetFolderLink = clean(row['Asset Folder Link']);\n  const assetFolderId = extractDriveFolderId(assetFolderLink);\n\n  const isActiveRoute = route === 'Active Listing' || route === 'Active Listing + CMA';\n\n  if (!isActiveRoute) continue;\n  if (automationEligible !== 'yes') continue;\n  if (!assetFolderLink || !assetFolderId) continue;\n  if (existingPgLink) continue;\n  if (pgStatus && pgStatus !== 'pending' && pgStatus !== 'error') continue;\n\n  output.push({\n    json: {\n      ...row,\n      'PG Doc Title': pgDocTitle(row),\n      'PG Pack Draft Body': buildDraftBody(row),\n      'Asset Folder ID': assetFolderId,\n      'PG Pack Last Updated': sgTimestamp(),\n      'PG Pack Notes': 'Selected for Module 4A PG pack draft shell test run',\n    },\n  });\n\n  if (output.length >= TEST_LIMIT) break;\n}\n\nreturn output;\n"
+      },
+      "id": "select-one-pg-row",
+      "name": "Select 1 Eligible PG Pack Row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        0
+      ],
+      "notes": "Filters active listing rows with Asset Folder Link and no PG Blurb Output Link. Returns only 1 row for test."
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "title": "={{ $json['PG Doc Title'] }}",
+        "text": "={{ $json['PG Pack Draft Body'] }}"
+      },
+      "id": "create-google-doc",
+      "name": "Create Google Doc - PG Pack Draft",
+      "type": "n8n-nodes-base.googleDocs",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        0
+      ],
+      "notes": "Creates a Google Doc draft shell. If the imported node requires field adjustment, set Title to {{$json['PG Doc Title']}} and content/text to {{$json['PG Pack Draft Body']}}."
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "operation": "move",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $json.id || $json.documentId }}",
+          "mode": "id"
+        },
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "value": "={{ $('Select 1 Eligible PG Pack Row').first().json['Asset Folder ID'] }}",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "move-doc-to-asset-folder",
+      "name": "Move Drive - Doc to Asset Folder",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1400,
+        0
+      ],
+      "notes": "Moves the created Google Doc into the listing asset folder. If file ID expression needs adjustment, use the ID output from the Google Docs node."
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction clean(value) {\n  if (value === undefined || value === null) return '';\n  return String(value).trim();\n}\n\nfunction sgTimestamp() {\n  const now = new Date();\n  const singaporeTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Singapore' }));\n  const yyyy = singaporeTime.getFullYear();\n  const mm = String(singaporeTime.getMonth() + 1).padStart(2, '0');\n  const dd = String(singaporeTime.getDate()).padStart(2, '0');\n  const hh = String(singaporeTime.getHours()).padStart(2, '0');\n  const min = String(singaporeTime.getMinutes()).padStart(2, '0');\n  return `${yyyy}-${mm}-${dd} ${hh}:${min}`;\n}\n\nconst selectedRow = $('Select 1 Eligible PG Pack Row').first().json;\nconst createdDoc = $('Create Google Doc - PG Pack Draft').first().json || {};\nconst movedDoc = items[0]?.json || createdDoc;\n\nconst docId = clean(movedDoc.id || movedDoc.documentId || createdDoc.id || createdDoc.documentId);\nconst docTitle = clean(createdDoc.title || movedDoc.name || selectedRow['PG Doc Title']);\nconst docLink = clean(movedDoc.webViewLink || createdDoc.webViewLink) || (docId ? `https://docs.google.com/document/d/${docId}/edit` : '');\n\nif (!docId && !docLink) {\n  return [{\n    json: {\n      'Source Key': selectedRow['Source Key'],\n      'Property Record ID': selectedRow['Property Record ID'],\n      'PG Pack Status': 'Error',\n      'PG Pack Last Updated': sgTimestamp(),\n      'PG Pack Review Status': 'Needs Review',\n      'PG Pack Notes': 'Google Doc creation did not return a document ID or link',\n    },\n  }];\n}\n\nreturn [{\n  json: {\n    'Source Key': selectedRow['Source Key'],\n    'Property Record ID': selectedRow['Property Record ID'],\n    'PG Pack Status': 'Draft Created',\n    'PG Blurb Output Link': docLink,\n    'PG Pack Last Updated': sgTimestamp(),\n    'PG Pack Review Status': 'Needs Review',\n    'PG Pack Notes': `Created PG pack draft shell: ${docTitle}`,\n  },\n}];\n"
+      },
+      "id": "prepare-registry-update",
+      "name": "Prepare Registry PG Pack Update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1700,
+        0
+      ],
+      "notes": "Prepares PG Pack status/link/review fields for the same Property Registry row."
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1Ct5JfYuWN7xg1zFRzHtQ8W64BTk3v7PAs1ypBrcmrS8/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Property Registry",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "Source Key"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "update-property-registry",
+      "name": "Update Central - Property Registry",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2000,
+        0
+      ],
+      "notes": "Writes only to Clarity V2 - Central Database / Property Registry. Matches on Source Key."
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read Central - Property Registry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Central - Property Registry": {
+      "main": [
+        [
+          {
+            "node": "Select 1 Eligible PG Pack Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select 1 Eligible PG Pack Row": {
+      "main": [
+        [
+          {
+            "node": "Create Google Doc - PG Pack Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Google Doc - PG Pack Draft": {
+      "main": [
+        [
+          {
+            "node": "Move Drive - Doc to Asset Folder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Move Drive - Doc to Asset Folder": {
+      "main": [
+        [
+          {
+            "node": "Prepare Registry PG Pack Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Registry PG Pack Update": {
+      "main": [
+        [
+          {
+            "node": "Update Central - Property Registry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "31d2fa68-2ce0-46cc-9129-2624b55d8ad7",
+  "meta": {
+    "module": "4A",
+    "description": "Creates one Google Doc PG Listing Pack draft shell inside the listing asset folder and updates Property Registry.",
+    "safety": [
+      "Inactive by default",
+      "Manual trigger only",
+      "Reads and writes only Clarity V2 Central Database / Property Registry",
+      "Does not read or write boss sheets",
+      "Creates only one Google Doc for test mode",
+      "Skips rows with existing PG Blurb Output Link",
+      "Uses existing Asset Folder Link to place the doc in listing folder"
+    ]
+  },
+  "tags": []
+}
