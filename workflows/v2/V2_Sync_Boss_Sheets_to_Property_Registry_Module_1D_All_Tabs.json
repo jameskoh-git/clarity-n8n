@@ -1,0 +1,827 @@
+{
+  "name": "V2 - Sync Boss Sheets to Property Registry - Module 1D All Tabs",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1O5nbMWDGK9cvNkWZ6S1YzlXWU3uHApWkBkh0RTR3OfU/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "HDB For Sale",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "read-1",
+      "name": "Read Boss - Sales HDB",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        500,
+        -420
+      ],
+      "notes": "READ ONLY node. Use Google credential connected to jameskoh.kjk@gmail.com. Boss sheets should remain Viewer-only."
+    },
+    {
+      "parameters": {
+        "jsCode": "const TEST_MODE = false;\nconst TEST_LIMIT = 1;\n\nfunction clean(value) {\n  if (value === undefined || value === null) return '';\n  return String(value).trim();\n}\n\nfunction get(row, names) {\n  for (const name of names) {\n    const value = row[name];\n    if (value !== undefined && value !== null && String(value).trim() !== '') {\n      return value;\n    }\n  }\n  return '';\n}\n\nfunction normaliseMoney(value) {\n  const raw = clean(value);\n  if (!raw) return '';\n  return raw.replace(/[$,\\s]/g, '');\n}\n\nfunction normalisePsf(value) {\n  const raw = clean(value);\n  if (!raw) return '';\n  return raw.replace(/[$,\\s]/g, '');\n}\n\nfunction slug(value) {\n  return clean(value)\n    .toUpperCase()\n    .replace(/\\s+/g, ' ')\n    .replace(/[^A-Z0-9#\\-\\/ ]/g, '')\n    .trim();\n}\n\nfunction singaporeTimestamp() {\n  const now = new Date();\n  const singaporeTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Singapore' }));\n  const yyyy = singaporeTime.getFullYear();\n  const mm = String(singaporeTime.getMonth() + 1).padStart(2, '0');\n  const dd = String(singaporeTime.getDate()).padStart(2, '0');\n  const hh = String(singaporeTime.getHours()).padStart(2, '0');\n  const min = String(singaporeTime.getMinutes()).padStart(2, '0');\n  return `${yyyy}-${mm}-${dd} ${hh}:${min}`;\n}\n\nconst now = singaporeTimestamp();\n\nconst sourceSheet = 'Master Listing Sales';\nconst sourceTab = 'HDB For Sale';\nconst saleRent = 'Sale';\nconst propertySegment = 'HDB';\n\nconst output = [];\n\nfor (const item of items) {\n  const row = item.json;\n\n  const clarityRoute = clean(row['Clarity Route']);\n\n  if (!clarityRoute || clarityRoute.toLowerCase() === 'no') {\n    continue;\n  }\n\n  const projectName = clean(get(row, ['Project Name', 'Project']));\n  const blk = clean(get(row, ['Blk', 'Block']));\n  const streetName = clean(get(row, ['Street Name', 'Street', 'Address']));\n  const level = clean(get(row, ['Level']));\n  const unit = clean(get(row, ['Unit', 'Unit No', 'Unit Number']));\n  const type = clean(get(row, ['Type', 'Property Type']));\n  const size = clean(get(row, ['Size', 'Area', 'Area sqft', 'Size sqft']));\n  const noOfBR = clean(get(row, ['No. of BR', 'Bedrooms', 'BR', 'Bedroom Count']));\n  const price = normaliseMoney(get(row, ['Price', 'Asking Price', 'Asking Rent', 'Rent', 'Rental']));\n  const psf = normalisePsf(get(row, ['PSF', 'Psf', 'psf']));\n  const tenure = clean(get(row, ['Tenure', 'Lease']));\n\n  const sourceRowNumber = clean(row.row_number || row.rowNumber || row.__rowNumber || '');\n\n  const sourceKeyParts = [\n    sourceSheet,\n    sourceTab,\n    saleRent,\n    propertySegment,\n    projectName,\n    blk,\n    streetName,\n    level,\n    unit,\n    type,\n    size,\n  ];\n\n  const sourceKey = sourceKeyParts.map(slug).join('|');\n  const propertyRecordID = 'PROP-' + Buffer.from(sourceKey).toString('base64url').slice(0, 16).toUpperCase();\n\n  output.push({\n    json: {\n      'Property Record ID': propertyRecordID,\n      'Source Sheet': sourceSheet,\n      'Source Tab': sourceTab,\n      'Source Row Number': sourceRowNumber,\n      'Source Key': sourceKey,\n      'Clarity Route': clarityRoute,\n      'Sale / Rent': saleRent,\n      'Property Segment': propertySegment,\n      'Property Subtype': type,\n      'Project Name': projectName,\n      'Blk': blk,\n      'Street Name': streetName,\n      'Level': level,\n      'Unit': unit,\n      'Type': type,\n      'Size': size,\n      'No. of BR': noOfBR,\n      'Price': price,\n      'PSF': psf,\n      'Tenure': tenure,\n      'Automation Eligible': 'Yes',\n      'Import Status': 'Synced',\n      'First Imported At': now,\n      'Last Synced At': now,\n      'Sync Notes': `Synced from ${sourceSheet} / ${sourceTab} via Module 1D all-tabs sync`,\n    },\n  });\n\n  if (TEST_MODE && output.length >= TEST_LIMIT) {\n    break;\n  }\n}\n\nreturn output;\n"
+      },
+      "id": "normalise-1",
+      "name": "Normalise - Sales HDB",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        760,
+        -420
+      ],
+      "notes": "Processes all rows where Clarity Route is not blank and not No. Normalises source tab fields into Property Registry schema."
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1Ct5JfYuWN7xg1zFRzHtQ8W64BTk3v7PAs1ypBrcmrS8/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Property Registry",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "Source Key"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "upsert-1",
+      "name": "Upsert Registry - Sales HDB",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1020,
+        -420
+      ],
+      "notes": "Duplicate-safe upsert. Matches on Source Key. Appends if new, updates if existing."
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1O5nbMWDGK9cvNkWZ6S1YzlXWU3uHApWkBkh0RTR3OfU/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Condo For Sale",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "read-2",
+      "name": "Read Boss - Sales Condo",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        500,
+        -180
+      ],
+      "notes": "READ ONLY node. Use Google credential connected to jameskoh.kjk@gmail.com. Boss sheets should remain Viewer-only."
+    },
+    {
+      "parameters": {
+        "jsCode": "const TEST_MODE = false;\nconst TEST_LIMIT = 1;\n\nfunction clean(value) {\n  if (value === undefined || value === null) return '';\n  return String(value).trim();\n}\n\nfunction get(row, names) {\n  for (const name of names) {\n    const value = row[name];\n    if (value !== undefined && value !== null && String(value).trim() !== '') {\n      return value;\n    }\n  }\n  return '';\n}\n\nfunction normaliseMoney(value) {\n  const raw = clean(value);\n  if (!raw) return '';\n  return raw.replace(/[$,\\s]/g, '');\n}\n\nfunction normalisePsf(value) {\n  const raw = clean(value);\n  if (!raw) return '';\n  return raw.replace(/[$,\\s]/g, '');\n}\n\nfunction slug(value) {\n  return clean(value)\n    .toUpperCase()\n    .replace(/\\s+/g, ' ')\n    .replace(/[^A-Z0-9#\\-\\/ ]/g, '')\n    .trim();\n}\n\nfunction singaporeTimestamp() {\n  const now = new Date();\n  const singaporeTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Singapore' }));\n  const yyyy = singaporeTime.getFullYear();\n  const mm = String(singaporeTime.getMonth() + 1).padStart(2, '0');\n  const dd = String(singaporeTime.getDate()).padStart(2, '0');\n  const hh = String(singaporeTime.getHours()).padStart(2, '0');\n  const min = String(singaporeTime.getMinutes()).padStart(2, '0');\n  return `${yyyy}-${mm}-${dd} ${hh}:${min}`;\n}\n\nconst now = singaporeTimestamp();\n\nconst sourceSheet = 'Master Listing Sales';\nconst sourceTab = 'Condo For Sale';\nconst saleRent = 'Sale';\nconst propertySegment = 'Condo';\n\nconst output = [];\n\nfor (const item of items) {\n  const row = item.json;\n\n  const clarityRoute = clean(row['Clarity Route']);\n\n  if (!clarityRoute || clarityRoute.toLowerCase() === 'no') {\n    continue;\n  }\n\n  const projectName = clean(get(row, ['Project Name', 'Project']));\n  const blk = clean(get(row, ['Blk', 'Block']));\n  const streetName = clean(get(row, ['Street Name', 'Street', 'Address']));\n  const level = clean(get(row, ['Level']));\n  const unit = clean(get(row, ['Unit', 'Unit No', 'Unit Number']));\n  const type = clean(get(row, ['Type', 'Property Type']));\n  const size = clean(get(row, ['Size', 'Area', 'Area sqft', 'Size sqft']));\n  const noOfBR = clean(get(row, ['No. of BR', 'Bedrooms', 'BR', 'Bedroom Count']));\n  const price = normaliseMoney(get(row, ['Price', 'Asking Price', 'Asking Rent', 'Rent', 'Rental']));\n  const psf = normalisePsf(get(row, ['PSF', 'Psf', 'psf']));\n  const tenure = clean(get(row, ['Tenure', 'Lease']));\n\n  const sourceRowNumber = clean(row.row_number || row.rowNumber || row.__rowNumber || '');\n\n  const sourceKeyParts = [\n    sourceSheet,\n    sourceTab,\n    saleRent,\n    propertySegment,\n    projectName,\n    blk,\n    streetName,\n    level,\n    unit,\n    type,\n    size,\n  ];\n\n  const sourceKey = sourceKeyParts.map(slug).join('|');\n  const propertyRecordID = 'PROP-' + Buffer.from(sourceKey).toString('base64url').slice(0, 16).toUpperCase();\n\n  output.push({\n    json: {\n      'Property Record ID': propertyRecordID,\n      'Source Sheet': sourceSheet,\n      'Source Tab': sourceTab,\n      'Source Row Number': sourceRowNumber,\n      'Source Key': sourceKey,\n      'Clarity Route': clarityRoute,\n      'Sale / Rent': saleRent,\n      'Property Segment': propertySegment,\n      'Property Subtype': type,\n      'Project Name': projectName,\n      'Blk': blk,\n      'Street Name': streetName,\n      'Level': level,\n      'Unit': unit,\n      'Type': type,\n      'Size': size,\n      'No. of BR': noOfBR,\n      'Price': price,\n      'PSF': psf,\n      'Tenure': tenure,\n      'Automation Eligible': 'Yes',\n      'Import Status': 'Synced',\n      'First Imported At': now,\n      'Last Synced At': now,\n      'Sync Notes': `Synced from ${sourceSheet} / ${sourceTab} via Module 1D all-tabs sync`,\n    },\n  });\n\n  if (TEST_MODE && output.length >= TEST_LIMIT) {\n    break;\n  }\n}\n\nreturn output;\n"
+      },
+      "id": "normalise-2",
+      "name": "Normalise - Sales Condo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        760,
+        -180
+      ],
+      "notes": "Processes all rows where Clarity Route is not blank and not No. Normalises source tab fields into Property Registry schema."
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1Ct5JfYuWN7xg1zFRzHtQ8W64BTk3v7PAs1ypBrcmrS8/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Property Registry",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "Source Key"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "upsert-2",
+      "name": "Upsert Registry - Sales Condo",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1020,
+        -180
+      ],
+      "notes": "Duplicate-safe upsert. Matches on Source Key. Appends if new, updates if existing."
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1O5nbMWDGK9cvNkWZ6S1YzlXWU3uHApWkBkh0RTR3OfU/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Landed For Sale",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "read-3",
+      "name": "Read Boss - Sales Landed",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        500,
+        60
+      ],
+      "notes": "READ ONLY node. Use Google credential connected to jameskoh.kjk@gmail.com. Boss sheets should remain Viewer-only."
+    },
+    {
+      "parameters": {
+        "jsCode": "const TEST_MODE = false;\nconst TEST_LIMIT = 1;\n\nfunction clean(value) {\n  if (value === undefined || value === null) return '';\n  return String(value).trim();\n}\n\nfunction get(row, names) {\n  for (const name of names) {\n    const value = row[name];\n    if (value !== undefined && value !== null && String(value).trim() !== '') {\n      return value;\n    }\n  }\n  return '';\n}\n\nfunction normaliseMoney(value) {\n  const raw = clean(value);\n  if (!raw) return '';\n  return raw.replace(/[$,\\s]/g, '');\n}\n\nfunction normalisePsf(value) {\n  const raw = clean(value);\n  if (!raw) return '';\n  return raw.replace(/[$,\\s]/g, '');\n}\n\nfunction slug(value) {\n  return clean(value)\n    .toUpperCase()\n    .replace(/\\s+/g, ' ')\n    .replace(/[^A-Z0-9#\\-\\/ ]/g, '')\n    .trim();\n}\n\nfunction singaporeTimestamp() {\n  const now = new Date();\n  const singaporeTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Singapore' }));\n  const yyyy = singaporeTime.getFullYear();\n  const mm = String(singaporeTime.getMonth() + 1).padStart(2, '0');\n  const dd = String(singaporeTime.getDate()).padStart(2, '0');\n  const hh = String(singaporeTime.getHours()).padStart(2, '0');\n  const min = String(singaporeTime.getMinutes()).padStart(2, '0');\n  return `${yyyy}-${mm}-${dd} ${hh}:${min}`;\n}\n\nconst now = singaporeTimestamp();\n\nconst sourceSheet = 'Master Listing Sales';\nconst sourceTab = 'Landed For Sale';\nconst saleRent = 'Sale';\nconst propertySegment = 'Landed';\n\nconst output = [];\n\nfor (const item of items) {\n  const row = item.json;\n\n  const clarityRoute = clean(row['Clarity Route']);\n\n  if (!clarityRoute || clarityRoute.toLowerCase() === 'no') {\n    continue;\n  }\n\n  const projectName = clean(get(row, ['Project Name', 'Project']));\n  const blk = clean(get(row, ['Blk', 'Block']));\n  const streetName = clean(get(row, ['Street Name', 'Street', 'Address']));\n  const level = clean(get(row, ['Level']));\n  const unit = clean(get(row, ['Unit', 'Unit No', 'Unit Number']));\n  const type = clean(get(row, ['Type', 'Property Type']));\n  const size = clean(get(row, ['Size', 'Area', 'Area sqft', 'Size sqft']));\n  const noOfBR = clean(get(row, ['No. of BR', 'Bedrooms', 'BR', 'Bedroom Count']));\n  const price = normaliseMoney(get(row, ['Price', 'Asking Price', 'Asking Rent', 'Rent', 'Rental']));\n  const psf = normalisePsf(get(row, ['PSF', 'Psf', 'psf']));\n  const tenure = clean(get(row, ['Tenure', 'Lease']));\n\n  const sourceRowNumber = clean(row.row_number || row.rowNumber || row.__rowNumber || '');\n\n  const sourceKeyParts = [\n    sourceSheet,\n    sourceTab,\n    saleRent,\n    propertySegment,\n    projectName,\n    blk,\n    streetName,\n    level,\n    unit,\n    type,\n    size,\n  ];\n\n  const sourceKey = sourceKeyParts.map(slug).join('|');\n  const propertyRecordID = 'PROP-' + Buffer.from(sourceKey).toString('base64url').slice(0, 16).toUpperCase();\n\n  output.push({\n    json: {\n      'Property Record ID': propertyRecordID,\n      'Source Sheet': sourceSheet,\n      'Source Tab': sourceTab,\n      'Source Row Number': sourceRowNumber,\n      'Source Key': sourceKey,\n      'Clarity Route': clarityRoute,\n      'Sale / Rent': saleRent,\n      'Property Segment': propertySegment,\n      'Property Subtype': type,\n      'Project Name': projectName,\n      'Blk': blk,\n      'Street Name': streetName,\n      'Level': level,\n      'Unit': unit,\n      'Type': type,\n      'Size': size,\n      'No. of BR': noOfBR,\n      'Price': price,\n      'PSF': psf,\n      'Tenure': tenure,\n      'Automation Eligible': 'Yes',\n      'Import Status': 'Synced',\n      'First Imported At': now,\n      'Last Synced At': now,\n      'Sync Notes': `Synced from ${sourceSheet} / ${sourceTab} via Module 1D all-tabs sync`,\n    },\n  });\n\n  if (TEST_MODE && output.length >= TEST_LIMIT) {\n    break;\n  }\n}\n\nreturn output;\n"
+      },
+      "id": "normalise-3",
+      "name": "Normalise - Sales Landed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        760,
+        60
+      ],
+      "notes": "Processes all rows where Clarity Route is not blank and not No. Normalises source tab fields into Property Registry schema."
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1Ct5JfYuWN7xg1zFRzHtQ8W64BTk3v7PAs1ypBrcmrS8/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Property Registry",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "Source Key"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "upsert-3",
+      "name": "Upsert Registry - Sales Landed",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1020,
+        60
+      ],
+      "notes": "Duplicate-safe upsert. Matches on Source Key. Appends if new, updates if existing."
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1O5nbMWDGK9cvNkWZ6S1YzlXWU3uHApWkBkh0RTR3OfU/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Commercial For Sale",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "read-4",
+      "name": "Read Boss - Sales Commercial",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        500,
+        300
+      ],
+      "notes": "READ ONLY node. Use Google credential connected to jameskoh.kjk@gmail.com. Boss sheets should remain Viewer-only."
+    },
+    {
+      "parameters": {
+        "jsCode": "const TEST_MODE = false;\nconst TEST_LIMIT = 1;\n\nfunction clean(value) {\n  if (value === undefined || value === null) return '';\n  return String(value).trim();\n}\n\nfunction get(row, names) {\n  for (const name of names) {\n    const value = row[name];\n    if (value !== undefined && value !== null && String(value).trim() !== '') {\n      return value;\n    }\n  }\n  return '';\n}\n\nfunction normaliseMoney(value) {\n  const raw = clean(value);\n  if (!raw) return '';\n  return raw.replace(/[$,\\s]/g, '');\n}\n\nfunction normalisePsf(value) {\n  const raw = clean(value);\n  if (!raw) return '';\n  return raw.replace(/[$,\\s]/g, '');\n}\n\nfunction slug(value) {\n  return clean(value)\n    .toUpperCase()\n    .replace(/\\s+/g, ' ')\n    .replace(/[^A-Z0-9#\\-\\/ ]/g, '')\n    .trim();\n}\n\nfunction singaporeTimestamp() {\n  const now = new Date();\n  const singaporeTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Singapore' }));\n  const yyyy = singaporeTime.getFullYear();\n  const mm = String(singaporeTime.getMonth() + 1).padStart(2, '0');\n  const dd = String(singaporeTime.getDate()).padStart(2, '0');\n  const hh = String(singaporeTime.getHours()).padStart(2, '0');\n  const min = String(singaporeTime.getMinutes()).padStart(2, '0');\n  return `${yyyy}-${mm}-${dd} ${hh}:${min}`;\n}\n\nconst now = singaporeTimestamp();\n\nconst sourceSheet = 'Master Listing Sales';\nconst sourceTab = 'Commercial For Sale';\nconst saleRent = 'Sale';\nconst propertySegment = 'Commercial / Industrial';\n\nconst output = [];\n\nfor (const item of items) {\n  const row = item.json;\n\n  const clarityRoute = clean(row['Clarity Route']);\n\n  if (!clarityRoute || clarityRoute.toLowerCase() === 'no') {\n    continue;\n  }\n\n  const projectName = clean(get(row, ['Project Name', 'Project']));\n  const blk = clean(get(row, ['Blk', 'Block']));\n  const streetName = clean(get(row, ['Street Name', 'Street', 'Address']));\n  const level = clean(get(row, ['Level']));\n  const unit = clean(get(row, ['Unit', 'Unit No', 'Unit Number']));\n  const type = clean(get(row, ['Type', 'Property Type']));\n  const size = clean(get(row, ['Size', 'Area', 'Area sqft', 'Size sqft']));\n  const noOfBR = clean(get(row, ['No. of BR', 'Bedrooms', 'BR', 'Bedroom Count']));\n  const price = normaliseMoney(get(row, ['Price', 'Asking Price', 'Asking Rent', 'Rent', 'Rental']));\n  const psf = normalisePsf(get(row, ['PSF', 'Psf', 'psf']));\n  const tenure = clean(get(row, ['Tenure', 'Lease']));\n\n  const sourceRowNumber = clean(row.row_number || row.rowNumber || row.__rowNumber || '');\n\n  const sourceKeyParts = [\n    sourceSheet,\n    sourceTab,\n    saleRent,\n    propertySegment,\n    projectName,\n    blk,\n    streetName,\n    level,\n    unit,\n    type,\n    size,\n  ];\n\n  const sourceKey = sourceKeyParts.map(slug).join('|');\n  const propertyRecordID = 'PROP-' + Buffer.from(sourceKey).toString('base64url').slice(0, 16).toUpperCase();\n\n  output.push({\n    json: {\n      'Property Record ID': propertyRecordID,\n      'Source Sheet': sourceSheet,\n      'Source Tab': sourceTab,\n      'Source Row Number': sourceRowNumber,\n      'Source Key': sourceKey,\n      'Clarity Route': clarityRoute,\n      'Sale / Rent': saleRent,\n      'Property Segment': propertySegment,\n      'Property Subtype': type,\n      'Project Name': projectName,\n      'Blk': blk,\n      'Street Name': streetName,\n      'Level': level,\n      'Unit': unit,\n      'Type': type,\n      'Size': size,\n      'No. of BR': noOfBR,\n      'Price': price,\n      'PSF': psf,\n      'Tenure': tenure,\n      'Automation Eligible': 'Yes',\n      'Import Status': 'Synced',\n      'First Imported At': now,\n      'Last Synced At': now,\n      'Sync Notes': `Synced from ${sourceSheet} / ${sourceTab} via Module 1D all-tabs sync`,\n    },\n  });\n\n  if (TEST_MODE && output.length >= TEST_LIMIT) {\n    break;\n  }\n}\n\nreturn output;\n"
+      },
+      "id": "normalise-4",
+      "name": "Normalise - Sales Commercial",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        760,
+        300
+      ],
+      "notes": "Processes all rows where Clarity Route is not blank and not No. Normalises source tab fields into Property Registry schema."
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1Ct5JfYuWN7xg1zFRzHtQ8W64BTk3v7PAs1ypBrcmrS8/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Property Registry",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "Source Key"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "upsert-4",
+      "name": "Upsert Registry - Sales Commercial",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1020,
+        300
+      ],
+      "notes": "Duplicate-safe upsert. Matches on Source Key. Appends if new, updates if existing."
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1Z_UAJPeqJfO8NrDfSe_gvKZkae3iIlBzFNdwftnAP84/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "HDB Whole Unit For Rent",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "read-5",
+      "name": "Read Boss - Rentals HDB",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1460,
+        -420
+      ],
+      "notes": "READ ONLY node. Use Google credential connected to jameskoh.kjk@gmail.com. Boss sheets should remain Viewer-only."
+    },
+    {
+      "parameters": {
+        "jsCode": "const TEST_MODE = false;\nconst TEST_LIMIT = 1;\n\nfunction clean(value) {\n  if (value === undefined || value === null) return '';\n  return String(value).trim();\n}\n\nfunction get(row, names) {\n  for (const name of names) {\n    const value = row[name];\n    if (value !== undefined && value !== null && String(value).trim() !== '') {\n      return value;\n    }\n  }\n  return '';\n}\n\nfunction normaliseMoney(value) {\n  const raw = clean(value);\n  if (!raw) return '';\n  return raw.replace(/[$,\\s]/g, '');\n}\n\nfunction normalisePsf(value) {\n  const raw = clean(value);\n  if (!raw) return '';\n  return raw.replace(/[$,\\s]/g, '');\n}\n\nfunction slug(value) {\n  return clean(value)\n    .toUpperCase()\n    .replace(/\\s+/g, ' ')\n    .replace(/[^A-Z0-9#\\-\\/ ]/g, '')\n    .trim();\n}\n\nfunction singaporeTimestamp() {\n  const now = new Date();\n  const singaporeTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Singapore' }));\n  const yyyy = singaporeTime.getFullYear();\n  const mm = String(singaporeTime.getMonth() + 1).padStart(2, '0');\n  const dd = String(singaporeTime.getDate()).padStart(2, '0');\n  const hh = String(singaporeTime.getHours()).padStart(2, '0');\n  const min = String(singaporeTime.getMinutes()).padStart(2, '0');\n  return `${yyyy}-${mm}-${dd} ${hh}:${min}`;\n}\n\nconst now = singaporeTimestamp();\n\nconst sourceSheet = 'Master Listing Rentals';\nconst sourceTab = 'HDB Whole Unit For Rent';\nconst saleRent = 'Rent';\nconst propertySegment = 'HDB';\n\nconst output = [];\n\nfor (const item of items) {\n  const row = item.json;\n\n  const clarityRoute = clean(row['Clarity Route']);\n\n  if (!clarityRoute || clarityRoute.toLowerCase() === 'no') {\n    continue;\n  }\n\n  const projectName = clean(get(row, ['Project Name', 'Project']));\n  const blk = clean(get(row, ['Blk', 'Block']));\n  const streetName = clean(get(row, ['Street Name', 'Street', 'Address']));\n  const level = clean(get(row, ['Level']));\n  const unit = clean(get(row, ['Unit', 'Unit No', 'Unit Number']));\n  const type = clean(get(row, ['Type', 'Property Type']));\n  const size = clean(get(row, ['Size', 'Area', 'Area sqft', 'Size sqft']));\n  const noOfBR = clean(get(row, ['No. of BR', 'Bedrooms', 'BR', 'Bedroom Count']));\n  const price = normaliseMoney(get(row, ['Price', 'Asking Price', 'Asking Rent', 'Rent', 'Rental']));\n  const psf = normalisePsf(get(row, ['PSF', 'Psf', 'psf']));\n  const tenure = clean(get(row, ['Tenure', 'Lease']));\n\n  const sourceRowNumber = clean(row.row_number || row.rowNumber || row.__rowNumber || '');\n\n  const sourceKeyParts = [\n    sourceSheet,\n    sourceTab,\n    saleRent,\n    propertySegment,\n    projectName,\n    blk,\n    streetName,\n    level,\n    unit,\n    type,\n    size,\n  ];\n\n  const sourceKey = sourceKeyParts.map(slug).join('|');\n  const propertyRecordID = 'PROP-' + Buffer.from(sourceKey).toString('base64url').slice(0, 16).toUpperCase();\n\n  output.push({\n    json: {\n      'Property Record ID': propertyRecordID,\n      'Source Sheet': sourceSheet,\n      'Source Tab': sourceTab,\n      'Source Row Number': sourceRowNumber,\n      'Source Key': sourceKey,\n      'Clarity Route': clarityRoute,\n      'Sale / Rent': saleRent,\n      'Property Segment': propertySegment,\n      'Property Subtype': type,\n      'Project Name': projectName,\n      'Blk': blk,\n      'Street Name': streetName,\n      'Level': level,\n      'Unit': unit,\n      'Type': type,\n      'Size': size,\n      'No. of BR': noOfBR,\n      'Price': price,\n      'PSF': psf,\n      'Tenure': tenure,\n      'Automation Eligible': 'Yes',\n      'Import Status': 'Synced',\n      'First Imported At': now,\n      'Last Synced At': now,\n      'Sync Notes': `Synced from ${sourceSheet} / ${sourceTab} via Module 1D all-tabs sync`,\n    },\n  });\n\n  if (TEST_MODE && output.length >= TEST_LIMIT) {\n    break;\n  }\n}\n\nreturn output;\n"
+      },
+      "id": "normalise-5",
+      "name": "Normalise - Rentals HDB",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1720,
+        -420
+      ],
+      "notes": "Processes all rows where Clarity Route is not blank and not No. Normalises source tab fields into Property Registry schema."
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1Ct5JfYuWN7xg1zFRzHtQ8W64BTk3v7PAs1ypBrcmrS8/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Property Registry",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "Source Key"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "upsert-5",
+      "name": "Upsert Registry - Rentals HDB",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1980,
+        -420
+      ],
+      "notes": "Duplicate-safe upsert. Matches on Source Key. Appends if new, updates if existing."
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1Z_UAJPeqJfO8NrDfSe_gvKZkae3iIlBzFNdwftnAP84/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Condo For Rent",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "read-6",
+      "name": "Read Boss - Rentals Condo",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1460,
+        -180
+      ],
+      "notes": "READ ONLY node. Use Google credential connected to jameskoh.kjk@gmail.com. Boss sheets should remain Viewer-only."
+    },
+    {
+      "parameters": {
+        "jsCode": "const TEST_MODE = false;\nconst TEST_LIMIT = 1;\n\nfunction clean(value) {\n  if (value === undefined || value === null) return '';\n  return String(value).trim();\n}\n\nfunction get(row, names) {\n  for (const name of names) {\n    const value = row[name];\n    if (value !== undefined && value !== null && String(value).trim() !== '') {\n      return value;\n    }\n  }\n  return '';\n}\n\nfunction normaliseMoney(value) {\n  const raw = clean(value);\n  if (!raw) return '';\n  return raw.replace(/[$,\\s]/g, '');\n}\n\nfunction normalisePsf(value) {\n  const raw = clean(value);\n  if (!raw) return '';\n  return raw.replace(/[$,\\s]/g, '');\n}\n\nfunction slug(value) {\n  return clean(value)\n    .toUpperCase()\n    .replace(/\\s+/g, ' ')\n    .replace(/[^A-Z0-9#\\-\\/ ]/g, '')\n    .trim();\n}\n\nfunction singaporeTimestamp() {\n  const now = new Date();\n  const singaporeTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Singapore' }));\n  const yyyy = singaporeTime.getFullYear();\n  const mm = String(singaporeTime.getMonth() + 1).padStart(2, '0');\n  const dd = String(singaporeTime.getDate()).padStart(2, '0');\n  const hh = String(singaporeTime.getHours()).padStart(2, '0');\n  const min = String(singaporeTime.getMinutes()).padStart(2, '0');\n  return `${yyyy}-${mm}-${dd} ${hh}:${min}`;\n}\n\nconst now = singaporeTimestamp();\n\nconst sourceSheet = 'Master Listing Rentals';\nconst sourceTab = 'Condo For Rent';\nconst saleRent = 'Rent';\nconst propertySegment = 'Condo';\n\nconst output = [];\n\nfor (const item of items) {\n  const row = item.json;\n\n  const clarityRoute = clean(row['Clarity Route']);\n\n  if (!clarityRoute || clarityRoute.toLowerCase() === 'no') {\n    continue;\n  }\n\n  const projectName = clean(get(row, ['Project Name', 'Project']));\n  const blk = clean(get(row, ['Blk', 'Block']));\n  const streetName = clean(get(row, ['Street Name', 'Street', 'Address']));\n  const level = clean(get(row, ['Level']));\n  const unit = clean(get(row, ['Unit', 'Unit No', 'Unit Number']));\n  const type = clean(get(row, ['Type', 'Property Type']));\n  const size = clean(get(row, ['Size', 'Area', 'Area sqft', 'Size sqft']));\n  const noOfBR = clean(get(row, ['No. of BR', 'Bedrooms', 'BR', 'Bedroom Count']));\n  const price = normaliseMoney(get(row, ['Price', 'Asking Price', 'Asking Rent', 'Rent', 'Rental']));\n  const psf = normalisePsf(get(row, ['PSF', 'Psf', 'psf']));\n  const tenure = clean(get(row, ['Tenure', 'Lease']));\n\n  const sourceRowNumber = clean(row.row_number || row.rowNumber || row.__rowNumber || '');\n\n  const sourceKeyParts = [\n    sourceSheet,\n    sourceTab,\n    saleRent,\n    propertySegment,\n    projectName,\n    blk,\n    streetName,\n    level,\n    unit,\n    type,\n    size,\n  ];\n\n  const sourceKey = sourceKeyParts.map(slug).join('|');\n  const propertyRecordID = 'PROP-' + Buffer.from(sourceKey).toString('base64url').slice(0, 16).toUpperCase();\n\n  output.push({\n    json: {\n      'Property Record ID': propertyRecordID,\n      'Source Sheet': sourceSheet,\n      'Source Tab': sourceTab,\n      'Source Row Number': sourceRowNumber,\n      'Source Key': sourceKey,\n      'Clarity Route': clarityRoute,\n      'Sale / Rent': saleRent,\n      'Property Segment': propertySegment,\n      'Property Subtype': type,\n      'Project Name': projectName,\n      'Blk': blk,\n      'Street Name': streetName,\n      'Level': level,\n      'Unit': unit,\n      'Type': type,\n      'Size': size,\n      'No. of BR': noOfBR,\n      'Price': price,\n      'PSF': psf,\n      'Tenure': tenure,\n      'Automation Eligible': 'Yes',\n      'Import Status': 'Synced',\n      'First Imported At': now,\n      'Last Synced At': now,\n      'Sync Notes': `Synced from ${sourceSheet} / ${sourceTab} via Module 1D all-tabs sync`,\n    },\n  });\n\n  if (TEST_MODE && output.length >= TEST_LIMIT) {\n    break;\n  }\n}\n\nreturn output;\n"
+      },
+      "id": "normalise-6",
+      "name": "Normalise - Rentals Condo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1720,
+        -180
+      ],
+      "notes": "Processes all rows where Clarity Route is not blank and not No. Normalises source tab fields into Property Registry schema."
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1Ct5JfYuWN7xg1zFRzHtQ8W64BTk3v7PAs1ypBrcmrS8/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Property Registry",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "Source Key"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "upsert-6",
+      "name": "Upsert Registry - Rentals Condo",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1980,
+        -180
+      ],
+      "notes": "Duplicate-safe upsert. Matches on Source Key. Appends if new, updates if existing."
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1Z_UAJPeqJfO8NrDfSe_gvKZkae3iIlBzFNdwftnAP84/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Landed For Rent",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "read-7",
+      "name": "Read Boss - Rentals Landed",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1460,
+        60
+      ],
+      "notes": "READ ONLY node. Use Google credential connected to jameskoh.kjk@gmail.com. Boss sheets should remain Viewer-only."
+    },
+    {
+      "parameters": {
+        "jsCode": "const TEST_MODE = false;\nconst TEST_LIMIT = 1;\n\nfunction clean(value) {\n  if (value === undefined || value === null) return '';\n  return String(value).trim();\n}\n\nfunction get(row, names) {\n  for (const name of names) {\n    const value = row[name];\n    if (value !== undefined && value !== null && String(value).trim() !== '') {\n      return value;\n    }\n  }\n  return '';\n}\n\nfunction normaliseMoney(value) {\n  const raw = clean(value);\n  if (!raw) return '';\n  return raw.replace(/[$,\\s]/g, '');\n}\n\nfunction normalisePsf(value) {\n  const raw = clean(value);\n  if (!raw) return '';\n  return raw.replace(/[$,\\s]/g, '');\n}\n\nfunction slug(value) {\n  return clean(value)\n    .toUpperCase()\n    .replace(/\\s+/g, ' ')\n    .replace(/[^A-Z0-9#\\-\\/ ]/g, '')\n    .trim();\n}\n\nfunction singaporeTimestamp() {\n  const now = new Date();\n  const singaporeTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Singapore' }));\n  const yyyy = singaporeTime.getFullYear();\n  const mm = String(singaporeTime.getMonth() + 1).padStart(2, '0');\n  const dd = String(singaporeTime.getDate()).padStart(2, '0');\n  const hh = String(singaporeTime.getHours()).padStart(2, '0');\n  const min = String(singaporeTime.getMinutes()).padStart(2, '0');\n  return `${yyyy}-${mm}-${dd} ${hh}:${min}`;\n}\n\nconst now = singaporeTimestamp();\n\nconst sourceSheet = 'Master Listing Rentals';\nconst sourceTab = 'Landed For Rent';\nconst saleRent = 'Rent';\nconst propertySegment = 'Landed';\n\nconst output = [];\n\nfor (const item of items) {\n  const row = item.json;\n\n  const clarityRoute = clean(row['Clarity Route']);\n\n  if (!clarityRoute || clarityRoute.toLowerCase() === 'no') {\n    continue;\n  }\n\n  const projectName = clean(get(row, ['Project Name', 'Project']));\n  const blk = clean(get(row, ['Blk', 'Block']));\n  const streetName = clean(get(row, ['Street Name', 'Street', 'Address']));\n  const level = clean(get(row, ['Level']));\n  const unit = clean(get(row, ['Unit', 'Unit No', 'Unit Number']));\n  const type = clean(get(row, ['Type', 'Property Type']));\n  const size = clean(get(row, ['Size', 'Area', 'Area sqft', 'Size sqft']));\n  const noOfBR = clean(get(row, ['No. of BR', 'Bedrooms', 'BR', 'Bedroom Count']));\n  const price = normaliseMoney(get(row, ['Price', 'Asking Price', 'Asking Rent', 'Rent', 'Rental']));\n  const psf = normalisePsf(get(row, ['PSF', 'Psf', 'psf']));\n  const tenure = clean(get(row, ['Tenure', 'Lease']));\n\n  const sourceRowNumber = clean(row.row_number || row.rowNumber || row.__rowNumber || '');\n\n  const sourceKeyParts = [\n    sourceSheet,\n    sourceTab,\n    saleRent,\n    propertySegment,\n    projectName,\n    blk,\n    streetName,\n    level,\n    unit,\n    type,\n    size,\n  ];\n\n  const sourceKey = sourceKeyParts.map(slug).join('|');\n  const propertyRecordID = 'PROP-' + Buffer.from(sourceKey).toString('base64url').slice(0, 16).toUpperCase();\n\n  output.push({\n    json: {\n      'Property Record ID': propertyRecordID,\n      'Source Sheet': sourceSheet,\n      'Source Tab': sourceTab,\n      'Source Row Number': sourceRowNumber,\n      'Source Key': sourceKey,\n      'Clarity Route': clarityRoute,\n      'Sale / Rent': saleRent,\n      'Property Segment': propertySegment,\n      'Property Subtype': type,\n      'Project Name': projectName,\n      'Blk': blk,\n      'Street Name': streetName,\n      'Level': level,\n      'Unit': unit,\n      'Type': type,\n      'Size': size,\n      'No. of BR': noOfBR,\n      'Price': price,\n      'PSF': psf,\n      'Tenure': tenure,\n      'Automation Eligible': 'Yes',\n      'Import Status': 'Synced',\n      'First Imported At': now,\n      'Last Synced At': now,\n      'Sync Notes': `Synced from ${sourceSheet} / ${sourceTab} via Module 1D all-tabs sync`,\n    },\n  });\n\n  if (TEST_MODE && output.length >= TEST_LIMIT) {\n    break;\n  }\n}\n\nreturn output;\n"
+      },
+      "id": "normalise-7",
+      "name": "Normalise - Rentals Landed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1720,
+        60
+      ],
+      "notes": "Processes all rows where Clarity Route is not blank and not No. Normalises source tab fields into Property Registry schema."
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1Ct5JfYuWN7xg1zFRzHtQ8W64BTk3v7PAs1ypBrcmrS8/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Property Registry",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "Source Key"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "upsert-7",
+      "name": "Upsert Registry - Rentals Landed",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1980,
+        60
+      ],
+      "notes": "Duplicate-safe upsert. Matches on Source Key. Appends if new, updates if existing."
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1Z_UAJPeqJfO8NrDfSe_gvKZkae3iIlBzFNdwftnAP84/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Commercial For Rent",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "read-8",
+      "name": "Read Boss - Rentals Commercial",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1460,
+        300
+      ],
+      "notes": "READ ONLY node. Use Google credential connected to jameskoh.kjk@gmail.com. Boss sheets should remain Viewer-only."
+    },
+    {
+      "parameters": {
+        "jsCode": "const TEST_MODE = false;\nconst TEST_LIMIT = 1;\n\nfunction clean(value) {\n  if (value === undefined || value === null) return '';\n  return String(value).trim();\n}\n\nfunction get(row, names) {\n  for (const name of names) {\n    const value = row[name];\n    if (value !== undefined && value !== null && String(value).trim() !== '') {\n      return value;\n    }\n  }\n  return '';\n}\n\nfunction normaliseMoney(value) {\n  const raw = clean(value);\n  if (!raw) return '';\n  return raw.replace(/[$,\\s]/g, '');\n}\n\nfunction normalisePsf(value) {\n  const raw = clean(value);\n  if (!raw) return '';\n  return raw.replace(/[$,\\s]/g, '');\n}\n\nfunction slug(value) {\n  return clean(value)\n    .toUpperCase()\n    .replace(/\\s+/g, ' ')\n    .replace(/[^A-Z0-9#\\-\\/ ]/g, '')\n    .trim();\n}\n\nfunction singaporeTimestamp() {\n  const now = new Date();\n  const singaporeTime = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Singapore' }));\n  const yyyy = singaporeTime.getFullYear();\n  const mm = String(singaporeTime.getMonth() + 1).padStart(2, '0');\n  const dd = String(singaporeTime.getDate()).padStart(2, '0');\n  const hh = String(singaporeTime.getHours()).padStart(2, '0');\n  const min = String(singaporeTime.getMinutes()).padStart(2, '0');\n  return `${yyyy}-${mm}-${dd} ${hh}:${min}`;\n}\n\nconst now = singaporeTimestamp();\n\nconst sourceSheet = 'Master Listing Rentals';\nconst sourceTab = 'Commercial For Rent';\nconst saleRent = 'Rent';\nconst propertySegment = 'Commercial / Industrial';\n\nconst output = [];\n\nfor (const item of items) {\n  const row = item.json;\n\n  const clarityRoute = clean(row['Clarity Route']);\n\n  if (!clarityRoute || clarityRoute.toLowerCase() === 'no') {\n    continue;\n  }\n\n  const projectName = clean(get(row, ['Project Name', 'Project']));\n  const blk = clean(get(row, ['Blk', 'Block']));\n  const streetName = clean(get(row, ['Street Name', 'Street', 'Address']));\n  const level = clean(get(row, ['Level']));\n  const unit = clean(get(row, ['Unit', 'Unit No', 'Unit Number']));\n  const type = clean(get(row, ['Type', 'Property Type']));\n  const size = clean(get(row, ['Size', 'Area', 'Area sqft', 'Size sqft']));\n  const noOfBR = clean(get(row, ['No. of BR', 'Bedrooms', 'BR', 'Bedroom Count']));\n  const price = normaliseMoney(get(row, ['Price', 'Asking Price', 'Asking Rent', 'Rent', 'Rental']));\n  const psf = normalisePsf(get(row, ['PSF', 'Psf', 'psf']));\n  const tenure = clean(get(row, ['Tenure', 'Lease']));\n\n  const sourceRowNumber = clean(row.row_number || row.rowNumber || row.__rowNumber || '');\n\n  const sourceKeyParts = [\n    sourceSheet,\n    sourceTab,\n    saleRent,\n    propertySegment,\n    projectName,\n    blk,\n    streetName,\n    level,\n    unit,\n    type,\n    size,\n  ];\n\n  const sourceKey = sourceKeyParts.map(slug).join('|');\n  const propertyRecordID = 'PROP-' + Buffer.from(sourceKey).toString('base64url').slice(0, 16).toUpperCase();\n\n  output.push({\n    json: {\n      'Property Record ID': propertyRecordID,\n      'Source Sheet': sourceSheet,\n      'Source Tab': sourceTab,\n      'Source Row Number': sourceRowNumber,\n      'Source Key': sourceKey,\n      'Clarity Route': clarityRoute,\n      'Sale / Rent': saleRent,\n      'Property Segment': propertySegment,\n      'Property Subtype': type,\n      'Project Name': projectName,\n      'Blk': blk,\n      'Street Name': streetName,\n      'Level': level,\n      'Unit': unit,\n      'Type': type,\n      'Size': size,\n      'No. of BR': noOfBR,\n      'Price': price,\n      'PSF': psf,\n      'Tenure': tenure,\n      'Automation Eligible': 'Yes',\n      'Import Status': 'Synced',\n      'First Imported At': now,\n      'Last Synced At': now,\n      'Sync Notes': `Synced from ${sourceSheet} / ${sourceTab} via Module 1D all-tabs sync`,\n    },\n  });\n\n  if (TEST_MODE && output.length >= TEST_LIMIT) {\n    break;\n  }\n}\n\nreturn output;\n"
+      },
+      "id": "normalise-8",
+      "name": "Normalise - Rentals Commercial",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1720,
+        300
+      ],
+      "notes": "Processes all rows where Clarity Route is not blank and not No. Normalises source tab fields into Property Registry schema."
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "https://docs.google.com/spreadsheets/d/1Ct5JfYuWN7xg1zFRzHtQ8W64BTk3v7PAs1ypBrcmrS8/edit",
+          "mode": "url"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Property Registry",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "Source Key"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "upsert-8",
+      "name": "Upsert Registry - Rentals Commercial",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1980,
+        300
+      ],
+      "notes": "Duplicate-safe upsert. Matches on Source Key. Appends if new, updates if existing."
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read Boss - Sales HDB",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Read Boss - Sales Condo",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Read Boss - Sales Landed",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Read Boss - Sales Commercial",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Read Boss - Rentals HDB",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Read Boss - Rentals Condo",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Read Boss - Rentals Landed",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Read Boss - Rentals Commercial",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Boss - Sales HDB": {
+      "main": [
+        [
+          {
+            "node": "Normalise - Sales HDB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalise - Sales HDB": {
+      "main": [
+        [
+          {
+            "node": "Upsert Registry - Sales HDB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Boss - Sales Condo": {
+      "main": [
+        [
+          {
+            "node": "Normalise - Sales Condo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalise - Sales Condo": {
+      "main": [
+        [
+          {
+            "node": "Upsert Registry - Sales Condo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Boss - Sales Landed": {
+      "main": [
+        [
+          {
+            "node": "Normalise - Sales Landed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalise - Sales Landed": {
+      "main": [
+        [
+          {
+            "node": "Upsert Registry - Sales Landed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Boss - Sales Commercial": {
+      "main": [
+        [
+          {
+            "node": "Normalise - Sales Commercial",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalise - Sales Commercial": {
+      "main": [
+        [
+          {
+            "node": "Upsert Registry - Sales Commercial",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Boss - Rentals HDB": {
+      "main": [
+        [
+          {
+            "node": "Normalise - Rentals HDB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalise - Rentals HDB": {
+      "main": [
+        [
+          {
+            "node": "Upsert Registry - Rentals HDB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Boss - Rentals Condo": {
+      "main": [
+        [
+          {
+            "node": "Normalise - Rentals Condo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalise - Rentals Condo": {
+      "main": [
+        [
+          {
+            "node": "Upsert Registry - Rentals Condo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Boss - Rentals Landed": {
+      "main": [
+        [
+          {
+            "node": "Normalise - Rentals Landed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalise - Rentals Landed": {
+      "main": [
+        [
+          {
+            "node": "Upsert Registry - Rentals Landed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Boss - Rentals Commercial": {
+      "main": [
+        [
+          {
+            "node": "Normalise - Rentals Commercial",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalise - Rentals Commercial": {
+      "main": [
+        [
+          {
+            "node": "Upsert Registry - Rentals Commercial",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "52abf6c4-da91-4b0a-87f7-9eae1dfbf9a2",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "description": "Clarity V2 Module 1D. Reads all 8 boss sheet tabs, filters by Clarity Route, normalises fields, and duplicate-safe upserts into Clarity V2 Property Registry using Source Key."
+  },
+  "tags": []
+}
