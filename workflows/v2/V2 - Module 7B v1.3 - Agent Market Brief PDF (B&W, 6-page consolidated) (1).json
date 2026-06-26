@@ -1,0 +1,1049 @@
+{
+  "name": "V2 - Module 7B v1.3 - Agent Market Brief PDF (B&W, 6-page consolidated)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "6ad458f0-6193-4e63-957f-9c49357a1235",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "cachedResultName": "Clarity V2 - Central Database",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1Ct5JfYuWN7xg1zFRzHtQ8W64BTk3v7PAs1ypBrcmrS8/edit?usp=drivesdk",
+          "mode": "list",
+          "value": "1Ct5JfYuWN7xg1zFRzHtQ8W64BTk3v7PAs1ypBrcmrS8"
+        },
+        "sheetName": {
+          "__rl": true,
+          "cachedResultName": "Property Registry",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1Ct5JfYuWN7xg1zFRzHtQ8W64BTk3v7PAs1ypBrcmrS8/edit#gid=1118131918",
+          "mode": "list",
+          "value": 1118131918
+        },
+        "options": {}
+      },
+      "id": "c4b62c05-90d4-4562-b978-fb2660cba345",
+      "name": "Read Property Registry",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        224,
+        0
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "o2MayUFB8yCkikgY",
+          "name": "JK.KJK Gmail"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "function clean(v){return String(v??'').trim();}function norm(v){return clean(v).toUpperCase();}function toNum(v){const n=Number(String(v??'').replace(/[^0-9.]/g,''));return Number.isFinite(n)&&n>0?n:null;}const BATCH_SIZE=1;const output=[];for(const item of $input.all()){const row=item.json;if(!clean(row['Source Key']))continue;if(norm(row['Automation Eligible'])!=='YES')continue;if(!norm(row['Clarity Route']).includes('ACTIVE LISTING'))continue;if(norm(row['Sale / Rent'])!=='SALE')continue;if(norm(row['Property Segment'])!=='CONDO')continue;const pdfStatus=norm(row['AI Market Brief PDF Status']);if(pdfStatus&&pdfStatus!=='PENDING')continue;if(clean(row['AI Market Brief PDF Link']))continue;const docLink=clean(row['AI Market Brief Google Doc Link'])||clean(row['AI Market Brief Doc Link']);if(!docLink)continue;if(!clean(row['Asset Folder Link']))continue;if(!toNum(row['CMA Min Transacted PSF'])||!toNum(row['CMA Max Transacted PSF']))continue;output.push(item);if(output.length>=BATCH_SIZE)break;}return output;"
+      },
+      "id": "c8d7c1a4-c967-487a-a980-9313f47e5163",
+      "name": "Select 1 Pending PDF Row",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ===== Module 7B — Build PDF HTML Content (consolidated, B&W, 6-page) =====\n// Supply page (page 5) is rendered upstream in 'Render Supply Page' and injected via row['_supplyPageHtml'].\nfunction clean(v){return String(v==null?'':v).trim();}\nfunction num(v){const n=Number(String(v==null?'':v).replace(/[^0-9.\\-]/g,''));return Number.isFinite(n)?n:null;}\nfunction pnum(v){const n=num(v);return (n!=null&&n>0)?n:null;}\nfunction esc(v){return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}\nfunction comma(n){return Number(n).toLocaleString('en-SG');}\nfunction fmtPrice(v){if(!v)return 'n/a';return 'SGD '+comma(Math.round(Number(v)));}\nfunction fmtPsf(v){if(!v)return 'n/a';return 'SGD '+comma(Math.round(Number(v)))+' psf';}\nfunction priceWithPsf(price,psf){if(!price)return 'n/a';return fmtPrice(price)+(psf?' ('+fmtPsf(psf)+')':'');}\nfunction _compSet(raw,ss,sp){var out=[];for(var qi=0;qi<raw.length;qi++){var c=raw[qi];var cpsf=pnum(c['Asking PSF']);if(!cpsf)continue;var inc=clean(c['Include In Analysis']).toUpperCase();if(inc&&inc!=='YES')continue;var st=clean(c['Listing Status']).toUpperCase();if(st&&st!=='ACTIVE')continue;if(clean(c['Own Listing']).toUpperCase()==='YES')continue;var cs=pnum(c['Size']),cp=pnum(c['Asking Price']);if(ss&&sp&&cs===ss&&cp===sp)continue;out.push({project:clean(c['Project Name']),size:cs,price:cp,psf:cpsf,badge:clean(c['Price Badge'])});}out.sort(function(a,b){return a.psf-b.psf;});return out;}\n\nconst row=$input.first().json;\n\nconst projectName=clean(row['Project Name'])||'Unknown Project';\nconst blk=clean(row['Blk']);\nconst street=clean(row['Street Name']);\nconst level=clean(row['Level']);\nconst unit=clean(row['Unit']);\nconst unitRef='#'+String(level).padStart(2,'0')+'-'+String(unit).padStart(2,'0');\nconst size=pnum(row['Size']);\nconst sizeStr=size?comma(size)+' sqft':'n/a';\nconst tenureRaw=clean(row['Tenure']);\nconst tenureStr=tenureRaw?(/^\\d+$/.test(tenureRaw)?tenureRaw+'-yr Leasehold':tenureRaw):'n/a';\nconst district=clean(row['District']);\nconst propertyType=clean(row['Property Subtype'])||clean(row['Type'])||'n/a';\nconst subtypeU=propertyType.toUpperCase();\n\nfunction pickField(names){for(const n of names){if(n in row){const v=clean(row[n]);if(v!=='')return v;}}return '';}\nlet bedrooms=clean(row['No. of BR']);\nif(!bedrooms){bedrooms=subtypeU.includes('STUDIO')?'Studio':'n/a';}\nlet bathrooms=pickField(['Bathrooms','No. of Bath','No. of Bathrooms','No. of Baths','Baths','Bathroom']);\nif(!bathrooms){bathrooms=subtypeU.includes('STUDIO')?'1':'n/a';}\n\nconst planningArea=clean(row['Planning Area']);\nconst planningRegion=clean(row['Planning Region']);\nfunction titleCase(s){return s.toLowerCase().replace(/\\b\\w/g,c=>c.toUpperCase());}\nconst planningAreaDisp=planningArea?titleCase(planningArea):'';\nlet subjectTopYear=null;\ntry{const _rcj=clean(row['Radius Comparables JSON']);if(_rcj){const _o=JSON.parse(_rcj);if(_o&&_o.subjectTopYear)subjectTopYear=_o.subjectTopYear;}}catch(e){}\nconst topSeg=subjectTopYear?('Est. TOP '+subjectTopYear):'';\nconst headerLineParts=[(blk?blk+' ':'')+street, district, planningAreaDisp, planningRegion, topSeg].filter(Boolean);\nconst headerLine=headerLineParts.join(' | ');\n\nconst generatedAt=new Date().toLocaleDateString('en-SG',{timeZone:'Asia/Singapore',year:'numeric',month:'long',day:'numeric'});\n\nconst askPrice=pnum(row['Price']);\nconst askPsf=pnum(row['PSF']);\nconst fmvVal=pnum(row['CMA Weighted Value Indication']);\nconst fmvPsf=pnum(row['CMA Weighted PSF']);\nconst cmaMinPsf=pnum(row['CMA Min Transacted PSF']);\nconst cmaMaxPsf=pnum(row['CMA Max Transacted PSF']);\n\nlet txRows=[];try{const r=clean(row['CMA Transaction Rows JSON']);if(r)txRows=JSON.parse(r);}catch(e){txRows=[];}\nlet allTx12m=[];try{const r=clean(row['CMA All Transactions 12M JSON']);if(r)allTx12m=JSON.parse(r);}catch(e){allTx12m=[];}\nconst usedKey=new Set(txRows.filter(r=>!r.anomaly).map(r=>r.date+'|'+r.price));\n\nfunction inBand(a){return size&&a&&Math.abs(Number(a)-size)/size<=0.25;}\nconst bandTx=allTx12m.filter(t=>inBand(t.areaSqft));\nconst bandPsfs=bandTx.map(t=>Number(t.psf)).filter(p=>p>0).sort((a,b)=>a-b);\nconst simN=bandPsfs.length||txRows.length;\nconst rawMinPsf=bandPsfs.length?bandPsfs[0]:cmaMinPsf;\nconst rawMaxPsf=bandPsfs.length?bandPsfs[bandPsfs.length-1]:cmaMaxPsf;\nfunction median(arr){if(!arr.length)return null;const m=Math.floor(arr.length/2);return arr.length%2?arr[m]:(arr[m-1]+arr[m])/2;}\nconst subjMedianPsf=median(bandPsfs);\nconst rawMinPrice=(rawMinPsf&&size)?Math.round(rawMinPsf*size/1000)*1000:null;\nconst rawMaxPrice=(rawMaxPsf&&size)?Math.round(rawMaxPsf*size/1000)*1000:null;\n\nconst _rawComps=Array.isArray(row['_competitorListings'])?row['_competitorListings']:[];\nconst compList=_compSet(_rawComps,size,askPrice);\nconst _cPsfs=compList.map(c=>c.psf),_cPrices=compList.map(c=>c.price).filter(p=>p>0);\nconst compMinPsf=compList.length?compList[0].psf:null;\nconst compMaxPsf=compList.length?compList[compList.length-1].psf:null;\nconst compMinPrice=_cPrices.length?Math.min.apply(null,_cPrices):null;\nconst compMaxPrice=_cPrices.length?Math.max.apply(null,_cPrices):null;\nconst compIncluded=String(compList.length);\nconst compTotal=String(compList.length);\nconst compMedianPsf=_cPsfs.length?median(_cPsfs):null;\n\nconst sConservative=pnum(row['Strategy Conservative Price']);\nconst sBalanced=pnum(row['Strategy Balanced Price']);\nconst sOptimistic=pnum(row['Strategy Optimistic Price']);\nfunction psfOf(q){return (q&&size)?Math.round(q/size):null;}\n\nconst nearMrt=clean(row['Nearest MRT/LRT']);\nconst nearMrtDist=pnum(row['Nearest MRT/LRT Distance Metres']);\nconst nearSch=clean(row['Nearest Primary School']);\nconst nearSchDist=pnum(row['Nearest Primary School Distance Metres']);\nconst nearbySupermarkets=clean(row['Nearby Supermarkets Within 1KM']);\nfunction fmtDist(m){return m?'~'+comma(m)+' m':'';}\nfunction amenityVal(n,d){if(!n)return 'n/a';const x=fmtDist(d);return esc(n)+(x?' ('+x+')':'');}\n\nconst mrtsWithin1km=clean(row['MRTs Within 1KM']);\nconst schoolsWithin1km=clean(row['Primary Schools Within 1KM']);\nconst schools1to2km=clean(row['Primary Schools 1-2KM']);\nfunction distOf(part){const i=part.indexOf('approx.');if(i<0)return null;const m=part.slice(i+7).match(/[0-9]+/);return m?Number(m[0]):null;}\nfunction annotateBand(s){const str=clean(s);if(!str)return '';return str.split(';').map(function(part){const p=part.trim();if(!p)return p;const d=distOf(p);if(d!==null&&d>=900&&d<=1100)return p+' *';return p;}).filter(Boolean).join('; ');}\nfunction numberedList(s){const str=clean(s);if(!str)return '';const parts=str.split(';').map(function(x){return x.trim();}).filter(Boolean);const out=[];let n=0;for(const p of parts){if(p.charAt(0)==='+')continue;let e=p.split('approx. ').join('~');e=e.split(' Station (').join(' (');n++;out.push(n+') '+e);}return out.join(', ');}\n\nfunction row2(l1,v1,l2,v2){return '<tr><td class=\"lbl\">'+l1+'</td><td class=\"val\">'+v1+'</td><td class=\"lbl\">'+l2+'</td><td class=\"val\">'+v2+'</td></tr>';}\nfunction row1(l,v){return '<tr><td class=\"lbl\">'+l+'</td><td class=\"val\" colspan=\"3\">'+v+'</td></tr>';}\nfunction sec(title,content){return '<div class=\"section\"><div class=\"section-title\">'+title+'</div>'+content+'</div>';}\nfunction planHdr(label){return '<div class=\"header\"><div class=\"header-title\">'+label+' &mdash; '+esc(projectName)+' '+unitRef+'</div><div class=\"header-meta\">Generated: '+generatedAt+' | Internal Use Only | Clarity V2 Module 7B</div></div>';}\n\nconst subjectTbl='<table class=\"dt\">'+\n  row2('Type',esc(propertyType),'Size',sizeStr)+\n  row2('Tenure',esc(tenureStr),'Unit',unitRef)+\n  row2('Bedrooms',esc(bedrooms),'Bathrooms',esc(bathrooms))+\n'</table>';\n\nconst locationBlock=(function(){\n  const schools1A=annotateBand(schoolsWithin1km);\n  const schools12A=annotateBand(schools1to2km);\n  const boundaryFlag=(schools1A+' '+schools12A).indexOf(' *')>=0;\n  const mrtDisplay=mrtsWithin1km?esc(numberedList(mrtsWithin1km)):(nearMrt?amenityVal(nearMrt,nearMrtDist):'n/a');\n  const hasLoc=mrtsWithin1km||schools1A||schools12A||nearbySupermarkets||nearMrt||nearSch;\n  if(!hasLoc)return '';\n  return '<div class=\"subhead\">Location &amp; Connectivity</div><table class=\"dt\">'+\n    row1('MRT / LRT (within 1 km)',mrtDisplay)+\n    row1('Primary schools (within 1 km)',schools1A?esc(numberedList(schools1A)):'None within 1 km')+\n    row1('Primary schools (1-2 km)',schools12A?esc(numberedList(schools12A)):'None within 1-2 km')+\n    row1('Supermarkets (within 1 km)',nearbySupermarkets?esc(numberedList(nearbySupermarkets)):'n/a')+\n    '</table><p class=\"amenity-note\">Straight-line distances (not walking).'+(boundaryFlag?' &nbsp;* Within ~100 m of the 1 km mark - verify exact home-school distance via OneMap SchoolQuery before relying on the priority band.':'')+'</p>';\n})();\n\nconst fmrMonthly=pnum(row['Rental FMR Monthly']);\nconst fmrPsf=pnum(row['Rental FMR PSF (approx)']);\nconst ryFmv=pnum(row['Gross Yield on FMV %']);\nconst ryAsk=pnum(row['Gross Yield on Asking %']);\nlet rentLine='';\nif(fmrMonthly){\n  const rentRound=Math.round(fmrMonthly/100)*100;\n  const psfStr=fmrPsf?' (~SGD '+fmrPsf.toFixed(2)+' psf, approx.)':'';\n  const yF=ryFmv?'~'+(Math.round(ryFmv*10)/10).toFixed(1)+'% FMV':'';\n  const yA=ryAsk?'~'+(Math.round(ryAsk*10)/10).toFixed(1)+'% asking':'';\n  const yld=(yF||yA)?(' &nbsp;|&nbsp; <strong>Gross yield:</strong> '+[yF,yA].filter(Boolean).join(' / ')):'';\n  rentLine='<strong>Indicative rent:</strong> ~SGD '+comma(rentRound)+'/mo'+psfStr+yld;\n}\n\nlet fmvBlock='';\nif(fmvVal&&askPrice){\n  const diff=((askPrice-fmvVal)/fmvVal)*100;\n  const sgn=diff>=0?'+':'';\n  fmvBlock='<div class=\"fmv-row\"><div><strong>Fair Market Value:</strong> '+priceWithPsf(fmvVal,fmvPsf)+\n    ' &nbsp;|&nbsp; <strong>Asking:</strong> '+priceWithPsf(askPrice,askPsf)+\n    ' &nbsp;|&nbsp; <strong>Difference:</strong> <strong>'+sgn+diff.toFixed(1)+'%</strong></div>'+\n    (rentLine?'<div style=\"margin-top:5px\">'+rentLine+'</div>':'')+'</div>';\n}else if(rentLine){\n  fmvBlock='<div class=\"fmv-row\">'+rentLine+'</div>';\n}\n\nlet graphSection='';\nif(rawMinPsf&&rawMaxPsf){\n  const vals=[rawMinPsf,rawMaxPsf];\n  if(compMinPsf)vals.push(compMinPsf);\n  if(compMaxPsf)vals.push(compMaxPsf);\n  if(askPsf)vals.push(askPsf);\n  if(fmvPsf)vals.push(fmvPsf);\n  const scaleMin=Math.floor(Math.min(...vals)*0.94/100)*100;\n  const scaleMax=Math.ceil(Math.max(...vals)*1.06/100)*100;\n  const sr=(scaleMax-scaleMin)||1;\n  const svgW=540,barH=30,labelW=150,chartW=svgW-labelW-34,rowGap=40;\n  const rows=[{label:'Transacted',min:rawMinPsf,max:rawMaxPsf,fill:'#cfcfcf',n:simN}];\n  if(compMinPsf&&compMaxPsf)rows.push({label:'Asking Range',min:compMinPsf,max:compMaxPsf,fill:'url(#hatch)',n:compIncluded});\n  const toX=psf=>labelW+((psf-scaleMin)/sr)*chartW;\n  const yTop=30,barTop=i=>yTop+i*(barH+rowGap);\n  const lastBottom=barTop(rows.length-1)+barH,lineTop=yTop-6,lineBottom=lastBottom+6,svgH=lineBottom+52;\n  let bars='';\n  rows.forEach((r,i)=>{const y=barTop(i),x1=toX(r.min),x2=toX(r.max),bw=Math.max(x2-x1,2);\n    bars+='<text x=\"'+(labelW-12)+'\" y=\"'+(y+barH/2-1)+'\" text-anchor=\"end\" font-size=\"12\" fill=\"#000\" font-weight=\"700\">'+r.label+'</text>';\n    if(r.n)bars+='<text x=\"'+(labelW-12)+'\" y=\"'+(y+barH/2+13)+'\" text-anchor=\"end\" font-size=\"9\" fill=\"#666\">n='+r.n+'</text>';\n    bars+='<rect x=\"'+x1+'\" y=\"'+y+'\" width=\"'+bw+'\" height=\"'+barH+'\" rx=\"2\" fill=\"'+r.fill+'\" stroke=\"#000\" stroke-width=\"1\"/>';\n    bars+='<text x=\"'+(x1-5)+'\" y=\"'+(y+barH/2+4)+'\" text-anchor=\"end\" font-size=\"10\" fill=\"#000\">'+comma(Math.round(r.min))+'</text>';\n    bars+='<text x=\"'+(x2+5)+'\" y=\"'+(y+barH/2+4)+'\" text-anchor=\"start\" font-size=\"10\" fill=\"#000\">'+comma(Math.round(r.max))+'</text>';\n  });\n  let overlap='';\n  if(rows.length>=2){const oMin=Math.max(rows[0].min,rows[1].min),oMax=Math.min(rows[0].max,rows[1].max);\n    if(oMax>oMin){[oMin,oMax].forEach(v=>{const vx=toX(v);\n      overlap+='<line x1=\"'+vx+'\" y1=\"'+lineTop+'\" x2=\"'+vx+'\" y2=\"'+lineBottom+'\" stroke=\"#888\" stroke-width=\"1\" stroke-dasharray=\"2,2\"/>';\n      overlap+='<text x=\"'+vx+'\" y=\"'+(lineTop-3)+'\" text-anchor=\"middle\" font-size=\"9\" fill=\"#888\">'+comma(Math.round(v))+'</text>';});}}\n  let askMark='';\n  if(askPsf&&askPsf>=scaleMin&&askPsf<=scaleMax){const ax=toX(askPsf);\n    askMark='<line x1=\"'+ax+'\" y1=\"'+lineTop+'\" x2=\"'+ax+'\" y2=\"'+lineBottom+'\" stroke=\"#000\" stroke-width=\"1.6\" stroke-dasharray=\"6,3\"/>';\n    askMark+='<text x=\"'+ax+'\" y=\"'+(lineBottom+15)+'\" text-anchor=\"middle\" font-size=\"9\" fill=\"#000\" font-weight=\"700\">Asking '+comma(Math.round(askPsf))+'</text>';}\n  let fmvMark='';\n  if(fmvPsf&&fmvPsf>=scaleMin&&fmvPsf<=scaleMax){const fx=toX(fmvPsf);\n    fmvMark='<line x1=\"'+fx+'\" y1=\"'+lineTop+'\" x2=\"'+fx+'\" y2=\"'+lineBottom+'\" stroke=\"#000\" stroke-width=\"1.8\"/>';\n    fmvMark+='<text x=\"'+fx+'\" y=\"'+(lineBottom+28)+'\" text-anchor=\"middle\" font-size=\"9\" fill=\"#000\" font-weight=\"700\">FMV '+comma(Math.round(fmvPsf))+'</text>';}\n  const axisCap='<text x=\"'+(labelW+chartW/2)+'\" y=\"'+(svgH-4)+'\" text-anchor=\"middle\" font-size=\"10\" fill=\"#444\">PSF (SGD/sqft)</text>';\n  const defs='<defs><pattern id=\"hatch\" width=\"6\" height=\"6\" patternUnits=\"userSpaceOnUse\" patternTransform=\"rotate(45)\"><rect width=\"6\" height=\"6\" fill=\"#fff\"/><line x1=\"0\" y1=\"0\" x2=\"0\" y2=\"6\" stroke=\"#000\" stroke-width=\"1\"/></pattern></defs>';\n  const svg='<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"'+svgW+'\" height=\"'+svgH+'\" style=\"font-family:Arial,sans-serif\">'+defs+overlap+bars+askMark+fmvMark+axisCap+'</svg>';\n  graphSection=sec('TRANSACTED vs ACTIVE ASKING RANGE','<div class=\"graph-wrap\">'+svg+\n    '<p class=\"graph-note\">Transacted = raw studio range (similar size, &plusmn;25%, trailing 12 months). Asking Range = active studio listings. Solid line = FMV. Dashed line = asking. Dotted = overlap. n = sample size.</p></div>');\n}\n\nconst evidenceTbl='<table class=\"dt\">'+\n  row2('Similar-size Sales',String(simN),'Window','Trailing 12 months')+\n  row2('Min Transacted',priceWithPsf(rawMinPrice,rawMinPsf),'Max Transacted',priceWithPsf(rawMaxPrice,rawMaxPsf))+\n'</table><p class=\"amenity-note\">Raw min&ndash;max of similar-size (studio, &plusmn;25%) URA sales; price restated at subject size ('+sizeStr+').</p>';\n\nconst askingTbl='<table class=\"dt\">'+\n  row2('Included Listings',compIncluded||'n/a','Total Listings',compTotal||'n/a')+\n  row2('Min Asking',priceWithPsf(compMinPrice,compMinPsf),'Max Asking',priceWithPsf(compMaxPrice,compMaxPsf))+\n'</table>';\n\nlet pricingTbl='';\nif(sConservative||sBalanced||sOptimistic){\n  function pcell(q){return fmtPrice(q)+(psfOf(q)?'<div class=\"psf-sub\">('+comma(psfOf(q))+' psf)</div>':'');}\n  const _premPct=(askPrice&&fmvVal)?(((askPrice-fmvVal)/fmvVal)*100):null;\n  const opReco='<div class=\"fmv-row\" style=\"margin-top:8px;line-height:1.7\">'+\n    '<div><strong>Operational read:</strong></div>'+\n    '<div>&mdash; <strong>Lead list price:</strong> '+fmtPrice(sBalanced)+' (Balanced) &mdash; positioned to attract serious buyers.</div>'+\n    '<div>&mdash; <strong>Floor / priced-to-move:</strong> '+fmtPrice(sConservative)+' (at FMV).</div>'+\n    '<div>&mdash; <strong>Market-test ceiling:</strong> '+fmtPrice(sOptimistic)+' &mdash; only with a 2&ndash;3 week review; step toward Balanced if no traction.</div>'+\n    '<div>&mdash; <strong>Avoid:</strong> '+fmtPrice(askPrice)+' (current asking'+(_premPct!=null?', +'+_premPct.toFixed(1)+'% over FMV':'')+') unless a clear unit-specific premium &mdash; expect extended days-on-market.</div>'+\n    '</div>';\n  pricingTbl='<table class=\"dt\"><tr>'+\n    '<td class=\"lbl\">Conservative</td><td class=\"val\">'+pcell(sConservative)+'</td>'+\n    '<td class=\"lbl\">Balanced</td><td class=\"val\">'+pcell(sBalanced)+'</td>'+\n    '<td class=\"lbl\">Optimistic</td><td class=\"val\">'+pcell(sOptimistic)+'</td></tr></table>'+\n    opReco+\n    '<p class=\"amenity-note\">Conservative = priced to move; Balanced = midpoint; Optimistic = an optimistic asking test, not a proven closing ceiling. <b>These are asking / listing strategies, not predicted closing prices:</b> FMV is the valuation anchor (most-probable value); a Balanced ask is set above FMV to leave negotiating room. See the Pricing Advisor page for the full recommendation.</p>';\n}\n\nconst disclaimer='<div class=\"disclaimer\">Internal agent reference only. Not for client distribution. Pricing is indicative and subject to market conditions, seller motivation, unit condition, and agent review. CMA: URA Private Residential Property Transactions. Competitor data: PropertyGuru snapshot. PSF figures are computed on exact URA floor area (sqm basis); displayed sqft and the rounded monthly rent are for presentation, so a figure may not divide exactly. Clarity V2 Module 7B. See the final page for methodology &amp; formulas.</div>';\n\nconst LOGOIMG='<img class=\"brand-logo\" alt=\"Clarity\" src=\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAaQAAAAzCAQAAAByUbTxAAAByElEQVR42u3b226DMBAFQBbx/7/svlVVaYIdG1jqmadKuQD2HrwQuiwAAAAAAAAAAAAAAABTiMb3l0u2st9mpBy9MuDozhrzUaM/bg7K5dX6e7t9n3/76bXpC8sNQ1iWrEr6PRy7f9mP8zh+5YNjLnUhXE8P0RXn7LvLc5YoLZNFqWEti+aJiFuKINIXZyQPUSSfhbO30N7gNX1iu2wq/ud6FN9/l6TjE9OvR/uZqqnlxqpfxaj7LB+PaKDEqb7FK+1VvzbvAvtBzh0lc9cWpY/u8q3Gdsg1xzNWJZYlDuaq7N43JEgKo7bRzRslc/h6rkpvS9e2ImkOaq4XNXjPbvG6frjV2o2KUc41oFiPKqPU+fzDZkQHxuicW81laNnwc0yGhMiKNH41ytneiVHdyHSM09pURrPHqO1CNkehhBhVRqlrnLbDzeixW89YccqzDnFS8BliNTUDbzJkWZXCvOUL0uw/Nb6P0au7YqIkSG+KoojRH69mjZKnLS60VU5K3z+xxbCCvnbrfQ/sxu3PhUfyJ9MnvEaK22LwpGujfG3xzN1EyiAtXbdRn3w+jMPXIvWRR8JvyjjD1mwAAAAAAAAAAAAAAIAaXwhqdyzxffMfAAAAAElFTkSuQmCC\">';\nconst page1Header='<div class=\"header\">'+LOGOIMG+'<div class=\"header-title\">Agent Market Brief &mdash; '+esc(projectName)+' '+unitRef+'</div><div class=\"header-sub\">'+esc(headerLine)+'</div><div class=\"header-meta\">Generated: '+generatedAt+' | Internal Use Only | Clarity V2 Module 7B</div></div>';\n\nlet trendSection='';\nlet trend=null;try{const r=clean(row['CMA Trend 12M Rolling JSON']);if(r)trend=JSON.parse(r);}catch(e){trend=null;}\nif(trend&&Array.isArray(trend.series)&&trend.series.length){\n  const S=trend.series,D=[];\n  const W=644,H=230,padL=46,padR=12,padT=10,padB=44,plotW=W-padL-padR,plotH=H-padT-padB;\n  const meds=S.map(p=>p.median),dvals=D.map(p=>p.median);const salePts=Array.isArray(trend.sales)?trend.sales.filter(s=>s&&Number.isFinite(s.psf)):[];const allv=meds.concat(dvals).concat(salePts.map(s=>s.psf));\n  let ymin=Math.min(...allv),ymax=Math.max(...allv);const span=(ymax-ymin)||100;ymin-=span*0.12;ymax+=span*0.12;\n  const n=S.length,X=i=>padL+(n<=1?plotW/2:(i/(n-1))*plotW),Y=v=>padT+(1-(v-ymin)/((ymax-ymin)||1))*plotH;\n  const maxc=Math.max(...S.map(p=>p.count||0),1),LOW=4,dMap={};D.forEach(p=>{dMap[p.period]=p.median;});\n  let bars='',spts=[],dpts=[],marks='',xlabels='';const step=Math.max(1,Math.ceil(n/6));\n  S.forEach((p,i)=>{const x=X(i),bh=((p.count||0)/maxc)*30;\n    bars+='<rect x=\"'+(x-3).toFixed(1)+'\" y=\"'+(padT+plotH-bh).toFixed(1)+'\" width=\"6\" height=\"'+bh.toFixed(1)+'\" fill=\"#e2e2e2\" stroke=\"#cfcfcf\" stroke-width=\"0.5\"/>';\n    const y=Y(p.median);spts.push(x.toFixed(1)+','+y.toFixed(1));const thin=(p.count||0)<LOW;\n    marks+=thin?'<circle cx=\"'+x.toFixed(1)+'\" cy=\"'+y.toFixed(1)+'\" r=\"3.3\" fill=\"#fff\" stroke=\"#000\" stroke-width=\"1.4\"/>':'<circle cx=\"'+x.toFixed(1)+'\" cy=\"'+y.toFixed(1)+'\" r=\"2.5\" fill=\"#000\"/>';\n    if(dMap[p.period]!=null)dpts.push(x.toFixed(1)+','+Y(dMap[p.period]).toFixed(1));\n    if(i%step===0||i===n-1)xlabels+='<text x=\"'+x.toFixed(1)+'\" y=\"'+(H-26)+'\" font-size=\"8\" fill=\"#888\" text-anchor=\"middle\">'+esc(p.period)+'</text>';});\n  function _pd(p){const m=String(p).match(/^(\\d{4})-(\\d{2})/);return m?new Date(+m[1],+m[2]-1,1):null;}\n  function _mo(a,b){const da=_pd(a),db=_pd(b);if(!da||!db)return -1;return (da.getFullYear()-db.getFullYear())*12+(da.getMonth()-db.getMonth());}\n  const _p0=S[0].period;let saleDots='',_out=null;\n  salePts.forEach(s=>{const off=_mo(s.p,_p0);if(off<0||off>(n-1))return;const x=X(off),y=Y(s.psf);saleDots+='<circle cx=\"'+x.toFixed(1)+'\" cy=\"'+y.toFixed(1)+'\" r=\"2.4\" fill=\"none\" stroke=\"#777\" stroke-width=\"1\"/>';if(!_out||s.psf>_out.psf)_out={psf:s.psf,x,y};});\n  let outAnn='';if(_out&&_out.psf>=ymax-(ymax-ymin)*0.18){outAnn='<circle cx=\"'+_out.x.toFixed(1)+'\" cy=\"'+_out.y.toFixed(1)+'\" r=\"3\" fill=\"#000\"/><text x=\"'+_out.x.toFixed(1)+'\" y=\"'+(_out.y-7).toFixed(1)+'\" font-size=\"8\" fill=\"#000\" text-anchor=\"middle\">'+comma(_out.psf)+' (high outlier)</text>';}\n  let yticks='';for(let k=0;k<=3;k++){const v=ymin+(k/3)*(ymax-ymin),y=Y(v);\n    yticks+='<line x1=\"'+padL+'\" y1=\"'+y.toFixed(1)+'\" x2=\"'+(W-padR)+'\" y2=\"'+y.toFixed(1)+'\" stroke=\"#eee\"/><text x=\"'+(padL-6)+'\" y=\"'+(y+3).toFixed(1)+'\" font-size=\"8\" fill=\"#888\" text-anchor=\"end\">'+comma(Math.round(v))+'</text>';}\n  const distLine=dpts.length?'<polyline points=\"'+dpts.join(' ')+'\" fill=\"none\" stroke=\"#888\" stroke-width=\"1.4\" stroke-dasharray=\"5 3\"/>':'';\n  const svg='<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"'+W+'\" height=\"'+H+'\" style=\"font-family:Arial,sans-serif\">'+yticks+bars+saleDots+distLine+'<polyline points=\"'+spts.join(' ')+'\" fill=\"none\" stroke=\"#000\" stroke-width=\"2\"/>'+marks+outAnn+xlabels+'</svg>';\n  const first=S[0].median,last=S[n-1].median,chg=first?((last-first)/first*100):0;\n  const note='Rolling 12-month median PSF on '+esc(trend.basis||'comparable')+' transactions; grey rings = individual sales'+(dpts.length?'; dashed line = district median (context)':'')+'. Hollow line-markers = thin windows (fewer than '+LOW+' sales). Latest: SGD '+comma(last)+' psf | '+(chg>=0?'+':'')+chg.toFixed(1)+'% over window. Source: URA. Agent review required.';\n  const tDir=clean(row['CMA Trend Direction']),tPhase=clean(row['CMA Trend Phase']),tNote=clean(row['CMA Trend Read Note']).replace(\"No market cross-check supplied (key 'Segment MoM %' to corroborate).\",\"No broader segment cross-check is included.\");\n  const oLow=pnum(row['CMA Outlook 6M Low PSF']),oCtr=pnum(row['CMA Outlook 6M Center PSF']),oHigh=pnum(row['CMA Outlook 6M High PSF']);\n  let readCallout='';\n  if(tDir||(oLow&&oHigh)){\n    const dirPhase=[tDir,tPhase].filter(Boolean).map(esc).join(' \\u2014 ');\n    const outStr=(oLow&&oHigh)?('SGD '+comma(oLow)+' \\u2013 '+comma(oHigh)+' psf'+(oCtr?' \\u00b7 center ~'+comma(oCtr):'')):'n/a';\n    readCallout='<div class=\"fmv-row\" style=\"margin-bottom:8px\">'+(dirPhase?'<div><strong>Trend read:</strong> '+dirPhase+'</div>':'')+'<div><strong>6-month outlook (illustrative scenario):</strong> '+outStr+'</div>'+(tNote?'<div class=\"amenity-note\" style=\"margin-top:4px\">'+esc(tNote)+'</div>':'')+'</div>';\n  }\n  trendSection='<div class=\"section\"><div class=\"section-title\">DEVELOPMENT PSF TREND &amp; OUTLOOK &mdash; TRAILING 12 MONTHS</div>'+readCallout+'<div class=\"graph-wrap\">'+svg+'<p class=\"graph-note\">'+note+'</p></div></div>';\n}\n\nconst page1='<div class=\"page\">'+page1Header+\n  sec('SUBJECT PROPERTY',subjectTbl+locationBlock)+\n  trendSection+'</div>';\nconst rangePage='<div class=\"page2\">'+planHdr('Valuation &amp; Pricing')+\n  graphSection+fmvBlock+\n  sec('TRANSACTION EVIDENCE (URA)',evidenceTbl)+\n  sec('ACTIVE ASKING MARKET',askingTbl)+\n  (pricingTbl?sec('PRICING STRATEGY',pricingTbl):'')+\n  disclaimer+'</div>';\n\nlet page2='';\nif(allTx12m.length){\n  const sorted=[...allTx12m].sort((a,b)=>String(b.date).localeCompare(String(a.date)));\n  const CAP=25;\n  const shown=sorted.slice(0,CAP);\n  const dates=sorted.map(r=>r.date).filter(Boolean);\n  const windowLabel=dates.length>=2?(dates[dates.length-1]+' to '+dates[0]):'Trailing 12 months';\n  const body=shown.map((r,i)=>{\n    const used=usedKey.has(r.date+'|'+r.price);\n    const sim=inBand(r.areaSqft);\n    const note=used?'Used for Weighted FMV':(sim?'Similar size':'Context');\n    const cls=used?' class=\"used\"':(sim?' class=\"simrow\"':'');\n    return '<tr'+cls+'><td class=\"c\">'+(i+1)+'</td><td>'+esc(r.date)+'</td><td class=\"r\">'+comma(Number(r.areaSqft))+'</td><td class=\"r\">SGD '+comma(Number(r.price))+'</td><td class=\"r\">SGD '+comma(Number(r.psf))+'</td><td class=\"c\">'+esc(r.floor||'')+'</td><td>'+note+'</td></tr>';\n  }).join('');\n  const capNote=sorted.length>CAP?(' (showing the '+CAP+' most recent of '+sorted.length+')'):'';\n  page2='<div class=\"page2\">'+\n    '<div class=\"header\"><div class=\"header-title\">All URA Transactions &mdash; '+esc(projectName)+'</div><div class=\"header-sub\">Trailing 12 months | '+windowLabel+'</div><div class=\"header-meta\">Generated: '+generatedAt+' | Internal Use Only | Clarity V2 Module 7B</div></div>'+\n    '<div class=\"section\"><div class=\"section-title\">ALL URA TRANSACTIONS &mdash; PAST 12 MONTHS</div>'+\n    '<p class=\"tbl-note\">'+sorted.length+' transaction(s) across the project in the trailing 12 months'+capNote+'. Rows in bold are the most recent size-band sales selected by recency. The weighted FMV is a recency-weighted (6-month half-life) median of these, then adjusted for floor and size, with the closest size- and floor-matched sales (including any exact-layout sale near the subject floor) carrying the most weight, so it need not equal the simple median of the bold rows. Rows marked Similar size are older size-band sales shown for context.</p>'+\n    '<table class=\"grid\"><thead><tr><th class=\"c\">#</th><th>Date</th><th class=\"r\">Size (sqft)</th><th class=\"r\">Price</th><th class=\"r\">PSF</th><th class=\"c\">Floor</th><th>Note</th></tr></thead><tbody>'+body+'</tbody></table>'+\n    '</div></div>';\n}\n\nlet page3='';\nif(compList.length){\n  const _subjRow={project:projectName,size:size,price:askPrice,psf:askPsf,own:true,badge:''};\n  const _allRows=compList.map(c=>({project:c.project,size:c.size,price:c.price,psf:c.psf,own:false,badge:c.badge})).concat([_subjRow]).sort((a,b)=>a.psf-b.psf);\n  const body=_allRows.map(c=>{\n    const cls=c.own?' class=\"used\"':'';\n    const tag=c.own?' <span class=\"mine\">(your listing)</span>':'';\n    const btag=(!c.own&&c.badge)?(' <span class=\"pbadge\">'+esc(c.badge)+'</span>'):'';\n    return '<tr'+cls+'><td>'+esc(c.project)+tag+btag+'</td><td class=\"r\">'+(c.size?comma(c.size):'n/a')+'</td><td class=\"r\">'+fmtPrice(c.price)+'</td><td class=\"r\">SGD '+comma(Math.round(c.psf))+'</td></tr>';\n  }).join('');\n  page3='<div class=\"page2\">'+\n    '<div class=\"header\"><div class=\"header-title\">Competitor Snapshot &mdash; '+esc(projectName)+' '+unitRef+'</div><div class=\"header-sub\">Active asking listings at this development | sorted by PSF (low to high)</div><div class=\"header-meta\">Generated: '+generatedAt+' | Internal Use Only | Clarity V2 Module 7B</div></div>'+\n    '<div class=\"section\"><div class=\"section-title\">COMPETITOR SNAPSHOT</div>'+\n    '<p class=\"tbl-note\">'+compList.length+' active competitor listing(s) at this development, sorted by asking PSF. Your own listing is shown in bold for reference and is not counted above; delisted ads are excluded. These are portal advertisements, so the same unit can appear in more than one ad.</p>'+\n    '<table class=\"grid\"><thead><tr><th>Project</th><th class=\"r\">Size (sqft)</th><th class=\"r\">Asking Price</th><th class=\"r\">Asking PSF</th></tr></thead><tbody>'+body+'</tbody></table>'+\n    '<p class=\"amenity-note\">Source: PropertyGuru snapshot. Active listings only.</p>'+\n    '</div></div>';\n}\nlet radiusSection='';\nlet devActivitySection='';\nlet rc=null;try{const r=clean(row['Radius Comparables JSON']);if(r)rc=JSON.parse(r);}catch(e){rc=null;}\nif(rc&&Array.isArray(rc.comps)&&rc.comps.length){\n  const subjLease=rc.subjectRemainingLease;\n  function leaseStr(rem){return rem==='Freehold'?'Freehold':(rem||rem===0?(''+rem):'n/a');}\n  function ageStr(a){if(a==null||a==='')return 'n/a';return ''+a;}\n  function yieldStr(y){return (y!=null&&y!==''&&Number(y)>0)?(Number(y).toFixed(1)+'%'):'n/a';}\n  function topStr(t){return (t!=null&&t!=='')?(''+t):'n/a';}\n  function nBracket(v){return (v!=null&&Number(v)>0)?(' <span class=\"psf-sub\">(n='+Number(v)+')</span>'):'';}\n  function unitsCell(tu,vfy){if(tu==null||tu===''||!(Number(tu)>0))return 'n/a';return comma(Number(tu))+(vfy?'&nbsp;*':'');}\n  function turnoverCell(cnt,units){var n=Number(cnt);if(!Number.isFinite(n))return 'n/a';if(n===0)return '0';var u=Number(units);if(!(u>0))return comma(n);var pct=Math.round((n/u*100)*10)/10;return comma(n)+' <span class=\"psf-sub\">('+pct+'%)</span>';}\n  let rows=rc.comps.map(c=>({project:clean(c.project),dist:c.distanceM,rem:c.remainingLease,top:c.topYear,age:c.age,gy:c.grossYield,rentN:c.rentN,medianPsf:Number(c.medianPsf),n:c.txCount,verify:(clean(c.topConfidence).toLowerCase()==='verify'),totalUnits:c.totalUnits,unitsVerify:(clean(c.unitsConfidence).toLowerCase()==='verify'),allMedianPsf:c.allMedianPsf,allSalesN:c.allSalesN,allGy:c.allGrossYield,allRentN:c.allRentN,subject:false}));\n  if(subjMedianPsf){rows.push({project:projectName,dist:0,rem:subjLease,top:rc.subjectTopYear,age:rc.subjectAge,gy:rc.subjectGrossYield,rentN:rc.subjectRentN,medianPsf:Math.round(subjMedianPsf),n:simN,verify:false,totalUnits:rc.subjectTotalUnits,unitsVerify:false,allMedianPsf:rc.subjectAllMedianPsf,allSalesN:rc.subjectAllSalesN,allGy:rc.subjectAllGrossYield,allRentN:rc.subjectAllRentN,subject:true});}\n  const band=rc.sizeBandSqft?(rc.sizeBandSqft.low+' to '+rc.sizeBandSqft.high+' sqft'):'\\u00b125%';\n  let band1=rows.slice().sort((a,b)=>a.medianPsf-b.medianPsf);\n  let anyThin=false;let anyVerify1=false;\n  const body1=band1.map(c=>{\n    const cls=c.subject?' class=\"used\"':'';\n    const tag=c.subject?' <span class=\"mine\">(subject)</span>':'';\n    const distStr=(c.dist===0)?'&mdash;':(c.dist+' m');\n    const nVal=Number(c.n);\n    const thin=(Number.isFinite(nVal)&&nVal>0&&nVal<4);\n    if(thin)anyThin=true;\n    const psfCls='r'+(thin?' thin':'')+(c.subject?' subjpsf':'');\n    const hasTop1=(c.top!=null&&c.top!=='');\n    const flag1=(c.verify&&hasTop1);\n    if(flag1)anyVerify1=true;\n    return '<tr'+cls+'><td>'+esc(titleCase(c.project))+tag+'</td><td class=\"c\">'+distStr+'</td><td class=\"c\">'+esc(topStr(c.top))+(flag1?'&nbsp;*':'')+'</td><td class=\"c\">'+esc(ageStr(c.age))+'</td><td class=\"c\">'+esc(String(leaseStr(c.rem)))+'</td><td class=\"'+psfCls+'\">'+fmtPsf(c.medianPsf)+nBracket(c.n)+'</td><td class=\"r\">'+yieldStr(c.gy)+nBracket(c.rentN)+'</td></tr>';\n  }).join('');\n  const intro1='<p class=\"tbl-note\">Studio-band like-for-like: nearby projects with similar-size sales ('+band+') over the trailing 12 months, plus the subject. Sorted by median PSF (low to high). Median PSF is the raw transacted median for that size band per project (no lease normalisation); the (n=...) is the number of similar-size sales behind it. Gross yield = median size-band rent PSF x 12 / median size-band sale PSF (gross, before costs); its (n=...) is the size-band rental contract count. This is the pricing reference.</p>';\n  const thinNote=anyThin?' &nbsp;A greyed Median PSF (and its n) = fewer than 4 similar-size sales (indicative only).':'';\n  const verifyNote1=anyVerify1?' &nbsp;* = TOP year from a source still being verified.':'';\n  const sec1='<div class=\"section\"><div class=\"section-title\">STUDIO COMPARABLES &mdash; WITHIN 1 KM</div>'+intro1+\n    '<table class=\"grid\"><thead><tr><th>Project</th><th class=\"c\">Distance</th><th class=\"c\">TOP</th><th class=\"c\">Age (yrs)</th><th class=\"c\">Remaining Lease (yrs)</th><th class=\"r\">Studio Median PSF (12m)</th><th class=\"r\">Studio Gross Yield (12m)</th></tr></thead><tbody>'+body1+'</tbody></table>'+\n    '<p class=\"amenity-note\">Distances straight-line (SVY21 grid). Source: URA transactions + URA rental contracts; TOP Registry for TOP/age.'+thinNote+verifyNote1+' Internal reference; agent review required.</p></div>';\n  let dev2=rows.slice().sort((a,b)=>{var an=Number(a.allSalesN)||0,bn=Number(b.allSalesN)||0;return (bn-an)||((a.dist||0)-(b.dist||0));});\n  let anyVerify=false;\n  let anyUnitsVerify=false;\n  let anyAllThin=false;\n  const body2=dev2.map(c=>{\n    const cls=c.subject?' class=\"used\"':'';\n    const tag=c.subject?' <span class=\"mine\">(subject)</span>':'';\n    const hasTop=(c.top!=null&&c.top!=='');\n    const flag=(c.verify&&hasTop);\n    if(flag)anyVerify=true;\n    const topCell=topStr(c.top);\n    if(c.unitsVerify&&Number(c.totalUnits)>0)anyUnitsVerify=true;\n    const aN=Number(c.allSalesN);\n    const aThin=(Number.isFinite(aN)&&aN>0&&aN<4);\n    if(aThin)anyAllThin=true;\n    const allPsfCls='r'+(aThin?' thin':'')+(c.subject?' subjpsf':'');\n    const allPsfVal=(c.allMedianPsf!=null&&Number(c.allMedianPsf)>0)?fmtPsf(c.allMedianPsf):'n/a';\n    return '<tr'+cls+'><td>'+esc(titleCase(c.project))+tag+'</td><td class=\"c\">'+esc(topCell)+(flag?'&nbsp;*':'')+'</td><td class=\"c\">'+esc(ageStr(c.age))+'</td><td class=\"c\">'+esc(String(leaseStr(c.rem)))+'</td><td class=\"r\">'+unitsCell(c.totalUnits,c.unitsVerify)+'</td><td class=\"'+allPsfCls+'\">'+allPsfVal+'</td><td class=\"r\">'+turnoverCell(c.allSalesN,c.totalUnits)+'</td><td class=\"r\">'+turnoverCell(c.allRentN,c.totalUnits)+'</td><td class=\"r\">'+yieldStr(c.allGy)+'</td></tr>';\n  }).join('');\n  const verifyNote=(anyVerify||anyUnitsVerify)?' &nbsp;* = TOP year or unit count from a source still being verified.':'';\n  const allThinNote=anyAllThin?' &nbsp;A greyed Median PSF = fewer than 4 development sales over the window (indicative only).':'';\n  const intro2='<p class=\"tbl-note\">Development-wide activity for the same nearby projects, blended across all unit sizes (not like-for-like on price). Total Units from the TOP Registry. Sales / Rentals = transacted count over the trailing 12 months; the bracketed % is that count as a share of total units (turnover). All-size Median PSF and Yield are blended across unit sizes &mdash; a general level for the development, comparable to a new-launch / BUC blended PSF, not to the studio table above. Sorted by sales volume (most to least).</p>';\n  const sec2='<div class=\"section\"><div class=\"section-title\">DEVELOPMENT ACTIVITY &mdash; WITHIN 1 KM</div>'+intro2+\n    '<table class=\"grid\"><thead><tr><th>Project</th><th class=\"c\">TOP</th><th class=\"c\">Age (yrs)</th><th class=\"c\">Rem. Lease (yrs)</th><th class=\"r\">Total Units</th><th class=\"r\">All-size Median PSF</th><th class=\"r\">Sales 12m</th><th class=\"r\">Rentals 12m</th><th class=\"r\">All-size Yield</th></tr></thead><tbody>'+body2+'</tbody></table>'+\n    '<p class=\"amenity-note\">Source: URA transactions + URA rental contracts; TOP Registry for units/age. Turnover, ages and yields are approximate.'+verifyNote+allThinNote+' Internal reference; agent review required.</p></div>';\n  radiusSection=sec1;\n  devActivitySection=sec2;\n}\nlet page4='';\nif(radiusSection){\n  page4='<div class=\"page2\">'+planHdr('Market Trend &amp; Studio Comparables')+radiusSection+'</div>';\n}\n\n// ============ PAGE 5 — DEVELOPMENT ACTIVITY + DISTRICT NEW-SUPPLY (combined) ============\nlet supplySection=row['_supplyPageHtml']||'';\nlet supplyBody='';\nif(supplySection){const _si=supplySection.indexOf('<div class=\"section\">');const _li=supplySection.lastIndexOf('</div>');if(_si>=0&&_li>_si)supplyBody=supplySection.slice(_si,_li);}\nlet page5='';\nif(devActivitySection&&supplyBody){page5='<div class=\"page2\">'+planHdr('Development Activity &amp; District Supply')+devActivitySection+supplyBody+'</div>';}\nelse if(devActivitySection){page5='<div class=\"page2\">'+planHdr('Development Activity')+devActivitySection+'</div>';}\nelse{page5=supplySection;}\n\n// ============ PAGE 6 / 7 — FLOORPLAN / SITE PLAN (colour preserved) ============\nconst fpUri=row['_floorplanDataUri']||'';\nconst spUri=row['_siteplanDataUri']||'';\nconst fpPage=fpUri?('<div class=\"page2\">'+planHdr('Floorplan')+'<div class=\"section\"><div class=\"section-title\">FLOORPLAN</div><img class=\"plan-img\" src=\"'+fpUri+'\"/></div></div>'):'';\nconst spPage=spUri?('<div class=\"page2\">'+planHdr('Site Plan')+'<div class=\"section\"><div class=\"section-title\">SITE PLAN</div><img class=\"plan-img\" src=\"'+spUri+'\"/></div></div>'):'';\n\n// ============ ANNEX — METHODOLOGY & FORMULAS (final page, after plans) ============\nlet annexCp=800,annexSf=20,annexDm=20;\ntry{const _nsj=clean(row['District New Supply JSON']);if(_nsj){const _nso=JSON.parse(_nsj);if(_nso){if(_nso.constructionPsf)annexCp=_nso.constructionPsf;if(_nso.softCostPct)annexSf=_nso.softCostPct;if(_nso.devMarginPct)annexDm=_nso.devMarginPct;}}}catch(e){}\nconst annexBody='<div class=\"anx-h\">Valuation &amp; Fair Market Value</div>'+\n'<p class=\"anx\"><b>Comparable set:</b> URA private resale transactions of similar size (&plusmn;25% of floor area) over the trailing 12 months.</p>'+\n'<p class=\"anx\"><b>FMV (weighted):</b> recency-weighted median of those sales &mdash; each weighted 0.5^(age in months &divide; 6), a 6-month half-life &mdash; then adjusted for floor level and unit size. The closest size- and floor-matched sale (including any exact-layout sale near the subject floor) carries the most weight, so FMV need not equal the simple median of the bold rows. FMV price = FMV PSF &times; unit size.</p>'+\n'<p class=\"anx\"><b>CMA range (Min / Max):</b> 10th to 90th percentile of the floor- and size-adjusted PSF.</p>'+\n'<p class=\"anx\"><b>Transacted vs Active Asking Range chart (Valuation page):</b> raw, unadjusted studio range, shown like-for-like with the raw asking range.</p>'+\n'<div class=\"anx-h\">Pricing Strategies</div>'+\n'<p class=\"anx\"><b>Conservative:</b> equal to FMV (priced to move).</p>'+\n'<p class=\"anx\"><b>Optimistic:</b> top recent transacted price plus a trend tilt (soft or flat 0%, neutral +2%, rising +4%). An asking test, not a proven closing ceiling.</p>'+\n'<p class=\"anx\"><b>Balanced:</b> midpoint of Conservative and Optimistic.</p>'+\n'<div class=\"anx-h\">Rental &amp; Yield</div>'+\n'<p class=\"anx\"><b>Fair-market rent (FMR):</b> median of &plusmn;25% size-band URA rental contracts, trailing 12 months (24-month fallback if thin).</p>'+\n'<p class=\"anx\"><b>Gross yield:</b> (median size-band rent PSF &times; 12) &divide; median size-band sale PSF. Gross, before costs and vacancy.</p>'+\n'<div class=\"anx-h\">Comparables (within 1 km)</div>'+\n'<p class=\"anx\"><b>Studio comparables:</b> raw transacted median PSF per project for the same &plusmn;25% size band; (n=) is the number of size-band sales.</p>'+\n'<p class=\"anx\"><b>Development activity:</b> all-size blended median PSF (a development-level indicator, not like-for-like on price); turnover % = transacted count &divide; total units (TOP Registry).</p>'+\n'<p class=\"anx\"><b>Leasehold normalisation:</b> applied only inside the valuation engine when blending cross-development sales into FMV (a 3.5% present-value curve pinned to SLA anchors: 96% at 99 yr, 80% at 60 yr, 60% at 30 yr). The displayed comparable tables (Studio Comparables and Development Activity) show <b>raw</b> transacted medians with no lease adjustment.</p>'+\n'<div class=\"anx-h\">Trend &amp; Outlook</div>'+\n'<p class=\"anx\"><b>Trend:</b> rolling 12-month median PSF; direction is read off the most recent 4-month window, not peak-to-now.</p>'+\n'<p class=\"anx\"><b>6-month outlook (illustrative scenario):</b> recent 4-month slope, damped (halved), with the band floored at &plusmn;1.5% of level. Not a forecast &mdash; there is no days-on-market or absorption data.</p>'+\n'<div class=\"anx-h\">New-Supply Land Benchmarks</div>'+\n'<p class=\"anx\"><b>Estimated launch PSF (unlaunched sites):</b> breakeven = (land $psf ppr + construction $'+annexCp+') &times; (1 + '+annexSf+'% soft cost), rounded to the nearest 10; launch = breakeven &times; (1 + '+annexDm+'% developer margin), rounded to the nearest 10. Launched projects show their actual average launch PSF instead.</p>'+\n'<div class=\"anx-h\">Conventions &amp; Sources</div>'+\n'<p class=\"anx\"><b>PSF basis:</b> computed on exact URA floor area (sqm); displayed sqft and the rounded rent are presentational, so some figures may not divide exactly.</p>'+\n'<p class=\"anx\"><b>Distances:</b> straight-line on the SVY21 grid, not walking distance.</p>'+\n'<p class=\"anx\"><b>Sources:</b> URA Private Residential Transactions and Rental Contracts; URA / SLA TOP Registry; URA GLS Programme and data.gov.sg; PropertyGuru snapshot (competitor asking).</p>';\nconst annexPage='<div class=\"page2\">'+planHdr('Methodology &amp; Formulas')+'<div class=\"section\"><div class=\"section-title\">METHODOLOGY &amp; FORMULAS</div>'+annexBody+'<p class=\"amenity-note\">All methods are internal to Clarity V2 Module 7B; figures are indicative and subject to agent review.</p></div></div>';\n\nconst css='body{font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#000;margin:0;padding:0}'+\n'.page{width:700px;margin:0 auto;padding:30px}'+\n'.page2{width:700px;margin:0 auto;padding:30px;page-break-before:always}'+\n'.header{border-bottom:2px solid #000;padding-bottom:10px;margin-bottom:20px}'+\n'.header-title{font-size:18px;font-weight:bold;color:#000}'+\n'.header-sub{font-size:12px;color:#333;margin-top:4px}'+\n'.header-meta{font-size:9px;color:#777;margin-top:4px}'+\n'.section{margin-bottom:16px}'+\n'.section-title{font-size:11px;font-weight:bold;text-transform:uppercase;letter-spacing:.07em;color:#000;border-bottom:1px solid #000;padding-bottom:3px;margin-bottom:8px}'+\n'.dt{width:100%;border-collapse:collapse;font-size:10.5px}'+\n'.dt .lbl{width:17%;color:#555;padding:6px 6px;vertical-align:top}'+\n'.dt .val{width:16%;font-weight:600;color:#000;padding:6px 6px;vertical-align:top}'+\n'.psf-sub{font-size:9px;color:#666;font-weight:400}'+\n'.grid{width:100%;border-collapse:collapse;font-size:11px}'+\n'.grid thead tr{background:#000;color:#fff}'+\n'.grid th{padding:8px 10px;font-weight:600;font-size:10.5px;text-align:left}'+\n'.grid td{padding:6px 10px;border-bottom:1px solid #ddd}'+\n'.grid tr.used td{font-weight:700;background:#f0f0f0}'+\n'.grid tr.used td.subjpsf{font-weight:400;white-space:nowrap}'+\n'.grid tr.simrow td{background:#f0f0f0}'+\n'.grid .r{text-align:left}.grid .c{text-align:left}'+\n'.grid td.thin{color:#999}'+\n'.grid td.thin .psf-sub{color:#999}'+\n'.grid th.r{text-align:left}.grid th.c{text-align:left}'+\n'.mine{font-size:8.5px;color:#555;font-weight:400}'+\n'.graph-wrap{margin:4px 0}'+\n'.graph-note{font-size:9px;color:#777;margin-top:4px;line-height:1.5}'+\n'.tbl-note{font-size:10px;color:#444;margin:0 0 10px 0}'+\n'.disclaimer{font-size:8.5px;color:#888;border-top:1px solid #ccc;padding-top:6px;margin-top:4px;line-height:1.5}'+\n'.subhead{font-size:9.5px;font-weight:700;color:#444;text-transform:uppercase;letter-spacing:.05em;margin:14px 0 6px}'+\n'.amenity-note{font-size:8.5px;color:#999;margin-top:5px}'+\n'.fmv-row{font-size:11px;color:#000;background:#f2f2f2;border-left:3px solid #000;padding:7px 12px;margin:0 0 12px;line-height:1.6}'+\n'.plan-img{display:block;max-width:100%;max-height:900px;height:auto;margin:6px auto 14px;border:1px solid #ccc}'+\n'.page2 .section{page-break-inside:avoid}'+'body{font-size:12px}.header-title{font-size:19px}.header-sub{font-size:13px}.header-meta{font-size:10px}.section-title{font-size:12px}.dt{font-size:11.5px}.psf-sub{font-size:10px}.grid{font-size:12px}.grid th{font-size:11.5px}.mine{font-size:9.5px}.graph-note{font-size:10px}.tbl-note{font-size:11px}.disclaimer{font-size:9.5px}.subhead{font-size:10.5px}.amenity-note{font-size:9.5px}.fmv-row{font-size:12px}.page{font-size:11px}.page .header-title{font-size:18px}.page .header-sub{font-size:12px}.page .header-meta{font-size:9px}.page .section-title{font-size:11px}.page .dt{font-size:10.5px}.page .psf-sub{font-size:9px}.page .graph-note{font-size:9px}.page .tbl-note{font-size:10px}.page .disclaimer{font-size:8.5px}.page .subhead{font-size:9.5px}.page .amenity-note{font-size:8.5px}.page .fmv-row{font-size:11px}.page .section{margin-bottom:10px}.page2 .section{page-break-inside:auto!important}.page2 .advsec{page-break-inside:auto!important}.advsec .tbl-note{font-size:13px;line-height:1.55}.advsec .fmv-row{font-size:14px}.anx-h{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#000;margin:9px 0 3px;border-bottom:1px solid #bbb;padding-bottom:2px}.anx{font-size:9px;color:#333;margin:3px 0;line-height:1.5}.anx b{color:#000}.page .header{position:relative}.page .brand-logo{position:absolute;top:0;right:0;width:150px;height:auto}';\n\nconst html='<!DOCTYPE html><html><head><meta charset=\"UTF-8\"><style>'+css+'</style></head><body>'+\n  page1+rangePage+page2+page3+page4+page5+fpPage+spPage+annexPage+'</body></html>';\n\nconst {_floorplanDataUri,_siteplanDataUri,_competitorListings,_supplyPageHtml,_districtSupplyRegistry,...rowOut}=row;\nreturn [{json:{...rowOut,'Competitor Min Asking PSF':compMinPsf,'Competitor Max Asking PSF':compMaxPsf,'Competitor Min Asking Price':compMinPrice,'Competitor Max Asking Price':compMaxPrice,'Competitor Median Asking PSF':compMedianPsf,'Competitor Included Listings':compIncluded,'Competitor Total Listings':compTotal,'PDF HTML Content':html}}];"
+      },
+      "id": "6fc6dd65-606f-405e-a204-b1967bfb2916",
+      "name": "Build PDF HTML Content",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "name": "={{ $node['Build PDF HTML Content'].json['Project Name'] }} {{ '#' + String($node['Build PDF HTML Content'].json['Level'] || '').padStart(2,'0') + '-' + String($node['Build PDF HTML Content'].json['Unit'] || '').padStart(2,'0') }} - Agent Market Brief.pdf",
+        "driveId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "My Drive"
+        },
+        "folderId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ (String($node['Build PDF HTML Content'].json['Asset Folder Link'] || '').match(/\\/folders\\/([^/?]+)/) || [])[1] || '' }}"
+        },
+        "options": {
+          "simplifyOutput": false
+        }
+      },
+      "id": "5d1227d7-6655-48ce-afc6-136c441e4da3",
+      "name": "Upload PDF to Asset Folder",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1792,
+        0
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "ZVxmQ3m7zw3U8VOF",
+          "name": "JK.KJK Gmail"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const sourceRow=$node['Build PDF HTML Content'].json;const uploaded=$node['Upload PDF to Asset Folder'].json;const fileId=uploaded.id||'';const webViewLink=uploaded.webViewLink||(fileId?'https://drive.google.com/file/d/'+fileId+'/view':'');const now=new Date();const sgTime=new Date(now.toLocaleString('en-US',{timeZone:'Asia/Singapore'}));const pad=n=>String(n).padStart(2,'0');const timestamp=sgTime.getFullYear()+'-'+pad(sgTime.getMonth()+1)+'-'+pad(sgTime.getDate())+' '+pad(sgTime.getHours())+':'+pad(sgTime.getMinutes());const planStatus=sourceRow['_planStatus']?(' Plans: '+sourceRow['_planStatus']+'.'):'';return [{json:{'row_number':sourceRow['row_number'],'AI Market Brief PDF Status':'Generated','AI Market Brief PDF Link':webViewLink,'AI Market Brief PDF File ID':fileId,'AI Market Brief PDF Last Updated':timestamp,'AI Market Brief PDF Notes':'PDF generated by Module 7B v1.3. Includes range graph + floorplan/site plan.'+planStatus+' Source: URA + PropertyGuru snapshot.'}}];"
+      },
+      "id": "3a7439b8-490e-4b41-8f57-045e9fd31baa",
+      "name": "Prepare PDF Registry Update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "1Ct5JfYuWN7xg1zFRzHtQ8W64BTk3v7PAs1ypBrcmrS8"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1118131918,
+          "mode": "list",
+          "cachedResultName": "Property Registry"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [],
+          "value": {},
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "f9df5071-e614-44dc-9f2c-bae982a4cb38",
+      "name": "Update Property Registry - PDF Fields",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2464,
+        0
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "o2MayUFB8yCkikgY",
+          "name": "JK.KJK Gmail"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.pdfshift.io/v3/convert/pdf",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ source: ($node['Inject Neighbour Asking'].json['PDF HTML Content'] || $node['Inject Master Plan'].json['PDF HTML Content'] || $node['Inject Advisor'].json['PDF HTML Content']), landscape: false, format: 'A4', sandbox: false }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "413db5cc-52d0-48da-8f80-2fccf8ac11dd",
+      "name": "Generate PDF from HTML",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        928,
+        0
+      ],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "O7D4CwsbG0k69Xhf",
+          "name": "PDFShift"
+        },
+        "httpHeaderAuth": {
+          "id": "6Q7Hqp31kbRkyykm",
+          "name": "PDFShift API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "fileFolder",
+        "searchMethod": "query",
+        "queryString": "={{ \"'\" + ((String($node['Select 1 Pending PDF Row'].json['Asset Folder Link'] || '').match(/folders\\/([^/?]+)/) || [])[1] || \"\") + \"' in parents and trashed = false\" }}",
+        "returnAll": true,
+        "filter": {},
+        "options": {
+          "fields": [
+            "id",
+            "name",
+            "mimeType"
+          ]
+        }
+      },
+      "id": "8de5ae5a-9088-4554-9986-9f6acb4815ab",
+      "name": "List Asset Folder",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        528,
+        208
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "ZVxmQ3m7zw3U8VOF",
+          "name": "JK.KJK Gmail"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const files = $input.all().map(i => i.json || {});\nconst pick = (re) => files.find(f => re.test(String(f.name || '')));\nconst fp = pick(/floor\\s*plan/i);\nconst sp = pick(/site\\s*plan/i);\nconst stale = files.filter(f => /market brief.*\\.pdf$/i.test(String(f.name || ''))).map(f => f.id).filter(Boolean);\nreturn [{ json: { fpId: fp ? fp.id : '', fpMime: (fp && fp.mimeType) || '', spId: sp ? sp.id : '', spMime: (sp && sp.mimeType) || '', _stalePdfIds: stale } }];"
+      },
+      "id": "4d602668-551f-47df-96f8-35f32ca33973",
+      "name": "Resolve Plans",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.fpId }}"
+        },
+        "options": {
+          "binaryPropertyName": "data"
+        }
+      },
+      "id": "e8a89e5d-7b29-486e-a38e-16b90b253e01",
+      "name": "Download Floorplan",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        800,
+        208
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "ZVxmQ3m7zw3U8VOF",
+          "name": "JK.KJK Gmail"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "let fpDataUri = '';\ntry {\n  const buf = await this.helpers.getBinaryDataBuffer(0, 'data');\n  if (buf && buf.length) {\n    const mime = $node['Resolve Plans'].json.fpMime || 'image/png';\n    fpDataUri = 'data:' + mime + ';base64,' + buf.toString('base64');\n  }\n} catch (e) {}\nconst r = $node['Resolve Plans'].json;\nreturn [{ json: { fpDataUri: fpDataUri, spId: r.spId, spMime: r.spMime, _stalePdfIds: r._stalePdfIds } }];"
+      },
+      "id": "d1e6d983-33e9-462f-87e3-1a573241bf30",
+      "name": "FP to b64",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        944,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.spId }}"
+        },
+        "options": {
+          "binaryPropertyName": "data"
+        }
+      },
+      "id": "c9104d39-93af-457c-bdeb-57d1a756bd00",
+      "name": "Download Siteplan",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        1088,
+        128
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "ZVxmQ3m7zw3U8VOF",
+          "name": "JK.KJK Gmail"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "let spDataUri = '';\ntry {\n  const buf = await this.helpers.getBinaryDataBuffer(0, 'data');\n  if (buf && buf.length) {\n    const mime = $node['Resolve Plans'].json.spMime || 'image/png';\n    spDataUri = 'data:' + mime + ';base64,' + buf.toString('base64');\n  }\n} catch (e) {}\nconst fpDataUri = $node['FP to b64'].json.fpDataUri || '';\nconst row = $node['Select 1 Pending PDF Row'].json;\nconst stale = $node['Resolve Plans'].json._stalePdfIds || [];\nconst got = [];\nif (fpDataUri) got.push('floorplan');\nif (spDataUri) got.push('siteplan');\nconst planStatus = got.length ? ('Found: ' + got.join(', ')) : 'Not Found';\nreturn [{ json: { ...row, _floorplanDataUri: fpDataUri, _siteplanDataUri: spDataUri, _stalePdfIds: stale, _planStatus: planStatus } }];"
+      },
+      "id": "15fea3a3-4edb-42d9-9195-9a7576b4ec4b",
+      "name": "Assemble Plans",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1232,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ids = ($node['Assemble Plans'].json._stalePdfIds) || [];\nreturn ids.filter(Boolean).map(id => ({ json: { staleFileId: id } }));"
+      },
+      "id": "aea692cb-9e15-4300-acaa-9967b0b57b72",
+      "name": "Collect Stale PDF IDs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2688,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "deleteFile",
+        "fileId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.staleFileId }}"
+        },
+        "options": {
+          "deletePermanently": false
+        }
+      },
+      "id": "530aee49-0bd1-4c91-ba68-70618379ec2d",
+      "name": "Delete Stale PDFs",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        2912,
+        0
+      ],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "ZVxmQ3m7zw3U8VOF",
+          "name": "JK.KJK Gmail"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json['Competitor Workspace Sheet ID'] }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "cachedResultName": "Sheet1",
+          "mode": "list",
+          "value": 0
+        },
+        "options": {}
+      },
+      "id": "fc0dcfec-8bcb-4283-9539-29c2caf11397",
+      "name": "Read Competitor Listings",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1360,
+        208
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "o2MayUFB8yCkikgY",
+          "name": "JK.KJK Gmail"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const listings=$input.all().map(i=>i.json).filter(j=>j&&(j['Asking PSF']!=null||j['Project Name']));\nconst subject=$node['Assemble Plans'].json;\nreturn [{json:{...subject,_competitorListings:listings}}];"
+      },
+      "id": "0669274f-f3ab-4d0b-95c8-7417cdc0feba",
+      "name": "Fold Competitors",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1552,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "1Ct5JfYuWN7xg1zFRzHtQ8W64BTk3v7PAs1ypBrcmrS8"
+        },
+        "sheetName": {
+          "__rl": true,
+          "cachedResultName": "District Supply Registry",
+          "mode": "list",
+          "value": 1405549474
+        },
+        "options": {}
+      },
+      "id": "2d31a2e8-a1f7-451c-8100-8497ce94d193",
+      "name": "Read District Supply Registry",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1728,
+        208
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "o2MayUFB8yCkikgY",
+          "name": "JK.KJK Gmail"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const clean=v=>String(v==null?'':v).trim();\nconst esc=v=>String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');\nconst comma=n=>Number(n).toLocaleString('en-SG');\nconst titleCase=s=>s.toLowerCase().replace(/\\b\\w/g,c=>c.toUpperCase());\nconst rnum=v=>{const n=Number(String(v==null?'':v).replace(/[^0-9.\\-]/g,''));return Number.isFinite(n)?n:null;};\nconst pctFix=s=>{s=clean(s);if(!s)return '';const n=Number(s);if(Number.isFinite(n)&&n>0&&n<=1)return Math.round(n*100)+'%';const mm=s.match(/[~><\\u2248]?\\s*\\d+(?:\\.\\d+)?\\s*%/g);if(mm&&mm.length)return mm[0].replace(/\\s+/g,'');return s;};\nconst subject=$node['Fold Competitors'].json;\nconst reg=$input.all().map(i=>i.json).filter(j=>j&&(j['Project Name']||j['GLS Location']));\nlet ns=null;try{const r=clean(subject['District New Supply JSON']);if(r)ns=JSON.parse(r);}catch(e){ns=null;}\nfunction planHdr(label){const lvl=String(subject['Level']||'').padStart(2,'0');const u=String(subject['Unit']||'').padStart(2,'0');const gen=new Date().toLocaleDateString('en-SG',{timeZone:'Asia/Singapore',year:'numeric',month:'long',day:'numeric'});return '<div class=\"header\"><div class=\"header-title\">'+label+' &mdash; '+esc(clean(subject['Project Name'])||'')+' #'+lvl+'-'+u+'</div><div class=\"header-meta\">Generated: '+gen+' | Internal Use Only | Clarity V2 Module 7B</div></div>';}\nlet supplyHtml='';\n(function(){\nconst cP=(ns&&ns.constructionPsf)||800,sf=(ns&&ns.softCostPct)||20,dm=(ns&&ns.devMarginPct)||20;\nconst r10=x=>Math.round(x/10)*10;\nconst estFromPpr=p=>{if(!(p>0))return{brk:null,pl:null};const brk=r10((p+cP)*(1+sf/100));const pl=r10(brk*(1+dm/100));return{brk:brk,pl:pl};};\nfunction localityOf(s){const t=String(s||'').toLowerCase();if(/marina garden|marina south|marina bay/.test(t))return{name:'Marina South',core:true};if(/river valley|zion road|zion rd|great world/.test(t))return{name:'River Valley',core:false};return{name:'',core:true};}\nconst byLoc={},standalone=[];\nfor(const m of reg){const loc=clean(m['GLS Location']);if(loc)byLoc[loc]=m;else if(clean(m['Project Name']))standalone.push(m);}\nconst sr=[];\nif(ns&&Array.isArray(ns.comps))for(const c of ns.comps){const m=byLoc[clean(c.location)]||null;const a=m?rnum(m['Actual Launch PSF']):null;sr.push({site:(m&&clean(m['Project Name']))||titleCase(String(c.location||'')),dist:c.distanceM,stage:String(c.awardYear||''),units:((m&&rnum(m['Est Units']))||c.housingUnits),ppr:c.landPsfPpr,blended:!!c.blended,actual:a,ld:(m?clean(m['Launch Date']):''),ps:(m?pctFix(m['Pct Sold']):''),brk:c.estBreakevenPsf,pl:c.estLaunchPsf,up:false,exp:'',verify:(m?clean(m['Confidence']).toLowerCase()==='verify':false),loc:localityOf(String(c.location||'')+' '+(m?(clean(m['GLS Location'])+' '+clean(m['Project Name'])+' '+clean(m['Notes'])):'')),stale:false});}\nfor(const m of standalone){const a=rnum(m['Actual Launch PSF']),ppr=rnum(m['Land PSF PPR']),st=clean(m['Stage']);const up=(/confirmed|reserve|tender|upcoming|pipeline/i.test(st)||(!ppr&&!a));const tcd=clean(m['Tender Close Date']);const stale=up&&!!tcd&&(Date.parse(tcd)<Date.now());const est=(ppr&&!a)?estFromPpr(ppr):{brk:null,pl:null};sr.push({site:clean(m['Project Name']),dist:rnum(m['Distance M']),stage:st||clean(m['Type'])||'',units:rnum(m['Est Units']),ppr:ppr,blended:false,actual:a,ld:clean(m['Launch Date']),ps:pctFix(m['Pct Sold']),brk:est.brk,pl:est.pl,up:up,exp:clean(m['Expected Launch']),verify:(clean(m['Confidence']).toLowerCase()==='verify'),loc:localityOf(clean(m['GLS Location'])+' '+clean(m['Project Name'])+' '+clean(m['Notes'])),stale:stale});}\nif(!sr.length)return;\nsr.sort((a,b)=>((a.dist==null?1e9:a.dist)-(b.dist==null?1e9:b.dist)));\nlet bl=false,vf=false,uc=false,sa=false,cx=false;\nfunction uS(u){if(u==null||u==='')return '';const n=Number(u);return Number.isFinite(n)?comma(n):esc(String(u));}\nconst body=sr.map(c=>{if(c.blended)bl=true;if(c.verify)vf=true;if(c.up)uc=true;if(c.stale)sa=true;if(c.loc&&!c.loc.core)cx=true;const ds=(c.dist==null)?'n/a':(comma(c.dist)+' m');const pp=c.ppr?('SGD '+comma(c.ppr)+(c.blended?' *':'')):(c.up?'TBD':'n/a');let v;if(c.actual){const s=[c.ld,(c.ps?c.ps+' sold':'')].filter(Boolean).join(' &middot; ');v='SGD '+comma(c.actual)+' <span class=\"psf-sub\">actual'+(s?(' &middot; '+s):'')+'</span>';}else if(c.up){v='<span class=\"psf-sub\">'+(c.exp?('launch '+esc(c.exp)):'pipeline')+'</span>';}else if(c.pl){v='~SGD '+comma(c.pl)+' <span class=\"psf-sub\">est. &middot; breakeven '+comma(c.brk)+'</span>';}else v='n/a';const sc=esc(String(c.site||''))+(c.verify?' &dagger;':'');const lt=(c.loc&&c.loc.name)?('<div class=\"psf-sub\">'+esc(c.loc.name)+(c.loc.core?'':' &middot; context')+'</div>'):'';return '<tr><td>'+sc+lt+'</td><td class=\"c\">'+ds+'</td><td class=\"c\">'+esc(String(c.stage||''))+(c.stale?' &Dagger;':'')+'</td><td class=\"c\">'+uS(c.units)+'</td><td>'+pp+'</td><td>'+v+'</td></tr>';}).join('');\nconst ctx=ns?(' within '+(((ns.radiusM||3000)/1000))+' km, awarded '+ns.recencyFrom+'+'):'';\nconst intro='<p class=\"tbl-note\">GLS &amp; collective-sale residential sites'+ctx+', plus upcoming plots, by distance. Launched projects show actual average launch psf; unlaunched show predicted launch = (land ppr + ~SGD '+cP+' constr.) &times; '+(100+sf)+'% soft &times; '+(100+dm)+'% margin, with breakeven (excl. profit) beneath.</p>';\nconst bN=bl?' &nbsp;* White / mixed-use site: land ppr blended across uses (approximate).':'';\nconst vN=vf?' &nbsp;&dagger; Figure pending verification.':'';\nconst uN=uc?' Upcoming GLS sites have no awarded price yet (land &amp; launch TBD).':'';\nconst sN=sa?' &nbsp;&Dagger; Tender close date has passed \\u2014 re-verify status (may be awarded or withdrawn).':'';\nconst cxN=cx?' &nbsp;Sites marked &ldquo;context&rdquo; (e.g. River Valley) sit in a different submarket and are shown as a broad district benchmark, not like-for-like supply for this unit.':'';\nsupplyHtml='<div class=\"page2\">'+planHdr('District New-Supply &amp; Land Benchmarks')+'<div class=\"section\"><div class=\"section-title\">DISTRICT NEW-SUPPLY &amp; LAND BENCHMARKS</div>'+intro+'<table class=\"grid\"><thead><tr><th>Site / project</th><th class=\"c\">Distance</th><th class=\"c\">Awarded / stage</th><th class=\"c\">Units</th><th>Land $psf ppr</th><th>Launch psf (actual / est.)</th></tr></thead><tbody>'+body+'</tbody></table><p class=\"amenity-note\">Source: URA GLS (data.gov.sg) &amp; URA GLS Programme; launches from public reports; estimates internal.'+bN+vN+uN+sN+cxN+' Agent review required.</p></div></div>';\n})();\nreturn [{json:{...subject,_supplyPageHtml:supplyHtml,_districtSupplyRegistry:reg}}];\n"
+      },
+      "id": "349d7d0e-7a69-4c56-b354-bd89c82a49a3",
+      "name": "Render Supply Page",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1904,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const r=$node['Build PDF HTML Content'].json;\nconst num=v=>{const n=Number(String(v==null?'':v).replace(/[^0-9.-]/g,''));return Number.isFinite(n)?n:null;};\nconst clean=v=>String(v==null?'':v).trim();\nlet supply=null;try{const s=clean(r['District New Supply JSON']);if(s)supply=JSON.parse(s);}catch(e){}\nlet gls=[];\nif(supply&&Array.isArray(supply.comps))gls=supply.comps.map(c=>({site:c.location,distM:c.distanceM,landPsfPpr:c.landPsfPpr,estLaunchPsf:c.estLaunchPsf}));\nlet _remLease=null;try{const _rc=JSON.parse(clean(r['Radius Comparables JSON'])||'{}');if(_rc&&_rc.subjectRemainingLease!=null&&_rc.subjectRemainingLease!=='')_remLease=_rc.subjectRemainingLease;}catch(e){}\nconst _tenRaw=clean(r['Tenure']);\nconst _leaseType=/^\\d+$/.test(_tenRaw)?(_tenRaw+'-year leasehold'):(_tenRaw||'leasehold');\nconst data={\nsubject:{project:clean(r['Project Name']),district:clean(r['District']),sizeSqft:num(r['Size']),type:clean(r['Property Subtype'])||clean(r['Type']),tenureType:_leaseType,remainingLeaseYears:_remLease},\nasking:{price:num(r['Price']),psf:num(r['PSF'])},\nfairMarketValue:{price:num(r['CMA Weighted Value Indication']),psf:num(r['CMA Weighted PSF'])},\ncalculatedStrategies:{conservative:num(r['Strategy Conservative Price']),balanced:num(r['Strategy Balanced Price']),optimistic:num(r['Strategy Optimistic Price'])},\ntransactedPsf:{min:num(r['CMA Min Transacted PSF']),max:num(r['CMA Max Transacted PSF'])},\ncompetitorAsking:{minPsf:num(r['Competitor Min Asking PSF']),maxPsf:num(r['Competitor Max Asking PSF']),medianPsf:num(r['Competitor Median Asking PSF']),included:clean(r['Competitor Included Listings']),total:clean(r['Competitor Total Listings'])},\ntrend:{direction:clean(r['CMA Trend Direction']),phase:clean(r['CMA Trend Phase']),outlookLowPsf:num(r['CMA Outlook 6M Low PSF']),outlookCenterPsf:num(r['CMA Outlook 6M Center PSF']),outlookHighPsf:num(r['CMA Outlook 6M High PSF'])},\nrentalYield:{fmrMonthly:num(r['Rental FMR Monthly']),grossYieldFmvPct:num(r['Gross Yield on FMV %']),grossYieldAskingPct:num(r['Gross Yield on Asking %'])},\nnewSupplyGLS:gls\n};\nconst SYS='You are an independent property pricing advisor writing a short, plain-English summary for an internal agent brief. Write so someone with NO property or finance background can follow it. Avoid jargon; if you must use a term like psf (price per square foot) or fair value, explain it plainly, and lead with whole-dollar prices rather than psf. You are given computed figures for one resale listing, including three pricing strategies already calculated from what has actually transacted: Conservative (list at fair value, priced to move), Balanced (midpoint), and Optimistic (the highest realistic asking price, anchored to the top achieved sale). Your job is to REASON on top of these: weigh the competitor depth and asking range, the price trend and 6-month outlook, nearby development medians, rental yield, and the upcoming new-supply (GLS) pipeline, then recommend which strategy to lead with (or a specific figure between Conservative and Optimistic) and how quickly to expect a sale. RULES: (1) Use ONLY the numbers provided; never invent figures. (2) Any price you suggest must sit between the Conservative and Optimistic figures (inclusive), or equal one of the three strategies; if you believe the right price is outside that band, say so plainly instead of inventing a number. (3) Explain the basis simply, referencing the evidence (transactions, trend, supply, competition). (4) Be candid, specific, concise. (5) Never state the exact unit number. (6) For objections, give the 2 to 3 most likely buyer concerns for this specific unit, each with a short, honest one-line response grounded only in the provided data. (7) For selling points, give 3 to 5 short punchy points a buyer would value, based only on the provided data (location and district, rental yield, value versus pricier upcoming new launches with no psf figures, tenure, size). (8) The rental figure is an INDICATIVE market rent (estimated fair-market rent), not a signed lease: never state or imply the unit is currently tenanted, has an existing tenancy, or that a rent is already being achieved or collected; refer to it only as estimated rental income or indicative yield. (9) Do not quote a single maximum transacted psf as a hard ceiling in your prose; the three calculated strategies already encode the transacted ceiling, so describe recent sales in whole-dollar terms or via the strategy band rather than a psf figure the reader cannot reconcile against the report. (10) For the new-launch comparison, say only that upcoming launches are materially more expensive than resale; do not quote specific launch psf numbers, because the figures provided are internal estimates that may differ from the launch table in the report. (11) The competitor included and total counts are advertisement records from a single portal snapshot, not a count of distinct units; the same unit can appear in several ads. Refer to them as listings or ads, and if you cite the number, note it may overstate the number of distinct competing units; never present it as that many separate units. (12) The target_timeframe is a rough qualitative estimate only; there is no days-on-market, listing-age or absorption data in the inputs, so express it as a wide range and do not imply it is data-backed. (13) For tenure, use remainingLeaseYears as the years of lease REMAINING and tenureType as the lease type; describe the unit as a leasehold home with about that many years remaining (for a CBD resale unit this is a relatively long remaining lease). NEVER state the original lease term such as 99 years as the years remaining, and never imply the unit has roughly 99 years of lease left. (14) The Optimistic strategy is a market-test asking ceiling, not a level supported by achieved transactions; recent achieved sales sit below the current asking. Do not say recent sales support the Optimistic figure or any price near the current asking; present Optimistic only as an asking test, and make clear achieved sales are below the current ask. Respond with STRICT JSON only, no markdown and no preamble, using these keys: headline (one plain sentence, max 130 chars), read (2 to 3 plain sentences explaining the situation), recommendation (object: lead_strategy one of Conservative|Balanced|Optimistic or null, target_price_sgd number or null, target_timeframe as a short duration only such as 2 to 3 months with no leading about or around and no extra conditions or clauses, basis in plain words), support (array of 2 to 4 short plain points in the seller favour), risks (array of 2 to 4 short plain points to watch), levers (array of 1 to 3 short plain practical options), selling_points (array of 3 to 5 short plain selling points for this unit, each a single phrase or short sentence), objections (array of 2 to 3 objects, each with keys objection and response, both plain short sentences). Keep every string in plain everyday language.';\nconst USER='Data (all SGD). remainingLeaseYears is the lease years REMAINING (not the original term); tenureType is the lease type. The three calculated strategies are evidence-based anchors; reason about where to sit. '+JSON.stringify(data);\nreturn [{json:{advisorBody:{model:'claude-opus-4-8',max_tokens:1500,system:SYS,messages:[{role:'user',content:USER}]}}}];"
+      },
+      "id": "ba6bb85f-c981-488d-801d-8c8e2f2bb2e9",
+      "name": "Build Advisor Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        704,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.advisorBody) }}",
+        "options": {}
+      },
+      "id": "9ef8a32b-2f9e-4e5f-a9b4-11dfc5dcd930",
+      "name": "AI Advisor",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        768,
+        352
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "eZO5407hXrrC7PlX",
+          "name": "Anthropic API (Claude Haiku)"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const build=$node['Build PDF HTML Content'].json;\nlet html=build['PDF HTML Content']||'';\nconst esc=v=>String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');\nconst comma=n=>Number(n).toLocaleString('en-SG');\nconst clean=v=>String(v==null?'':v).trim();\nconst numv=v=>{const n=Number(String(v==null?'':v).replace(/[^0-9.-]/g,''));return Number.isFinite(n)?n:null;};\nconst money=v=>{const n=Number(v);return Number.isFinite(n)&&n>0?'SGD '+comma(Math.round(n)):'n/a';};\nconst cons=numv(build['Strategy Conservative Price']);\nconst opt=numv(build['Strategy Optimistic Price']);\nlet adv=null;\ntry{\nconst resp=$node['AI Advisor'].json;\nlet t='';\nif(resp&&Array.isArray(resp.content)){t=resp.content.map(b=>b&&b.text?b.text:'').join('');}\nelse if(resp&&typeof resp.text==='string'){t=resp.text;}\nt=clean(t);\nif(t.indexOf('{')>=0){t=t.slice(t.indexOf('{'),t.lastIndexOf('}')+1);}\nif(t){\ntry{adv=JSON.parse(t);}\ncatch(e1){\nconst ki=t.indexOf('\"objections\"');\nif(ki>=0){\nconst cut=t.lastIndexOf(',',ki);\nconst head=(cut>=0?t.slice(0,cut):t.slice(0,ki-1))+'}';\ntry{adv=JSON.parse(head);}catch(e2){adv=null;}\nif(adv){\nconst uq=s=>{try{return JSON.parse('\"'+s+'\"');}catch(e){return s;}};\nconst pairs=[];const re=/\"objection\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"\\s*,\\s*\"response\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"/g;let m;const tail=t.slice(ki);\nwhile((m=re.exec(tail))){pairs.push({objection:uq(m[1]),response:uq(m[2])});}\nif(pairs.length)adv.objections=pairs;\n}\n}\n}\n}\n}catch(e){adv=null;}\nif(adv){\nconst rec=adv.recommendation||{};\nconst tp=numv(rec.target_price_sgd);\nlet outFlag='';\nif(tp!=null&&opt!=null&&tp>opt)outFlag=' <span class=\"psf-sub\">(above the calculated Optimistic strategy)</span>';\nelse if(tp!=null&&cons!=null&&tp<cons)outFlag=' <span class=\"psf-sub\">(below the calculated Conservative strategy)</span>';\nconst lb=(label,arr)=>{if(!Array.isArray(arr)||!arr.length)return '';return '<p class=\"tbl-note\"><strong>'+label+':</strong><br>'+arr.map(x=>'&mdash; '+esc(String(x))).join('<br>')+'</p>';};\nconst objBlock=(function(arr){if(!Array.isArray(arr)||!arr.length)return '';const items=arr.map(function(o){if(!o)return '';const q=esc(clean(o.objection||o.q||''));const a=esc(clean(o.response||o.a||''));if(!q&&!a)return '';return '&mdash; <strong>'+q+'</strong> '+a;}).filter(Boolean);if(!items.length)return '';return '<p class=\"tbl-note\"><strong>Handling buyer objections:</strong><br>'+items.join('<br>')+'</p>';})(adv.objections);\nconst sp=lb('Selling points to lead with',adv.selling_points);\nlet priceLine='';\nif(rec.target_price_sgd){let tf=clean(rec.target_timeframe||'').replace(/^(about|around|roughly|approximately|approx\\.?)\\s+/i,'').replace(/[.\\s]+$/,'');priceLine='<strong>Suggested list price:</strong> '+money(rec.target_price_sgd)+(rec.lead_strategy?' (the '+esc(rec.lead_strategy)+' strategy)':'')+(tf?' &mdash; expected time to sell: '+esc(tf)+' (rough estimate; no days-on-market data)':'')+'.'+outFlag;}\nconst why=rec.basis?'<p class=\"tbl-note\"><strong>Why this price:</strong> '+esc(rec.basis)+'</p>':'';\nconst advSection='<div class=\"section advsec\"><div class=\"section-title\">PRICING ADVISOR &mdash; PLAIN-ENGLISH READ</div><div class=\"fmv-row\"><strong>'+esc(adv.headline||'')+'</strong></div>'+(adv.read?'<p class=\"tbl-note\">'+esc(adv.read)+'</p>':'')+(priceLine?'<p class=\"tbl-note\">'+priceLine+'</p>':'')+why+lb('In its favour',adv.support)+lb('Watch-outs',adv.risks)+lb('Options to consider',adv.levers)+sp+objBlock+'<p class=\"amenity-note\">Independent AI view reasoning on top of the calculated strategies; internal use only. Agent judgement required.</p></div>';\nconst lvl=String(build['Level']||'').padStart(2,'0');const u=String(build['Unit']||'').padStart(2,'0');\nconst gen=new Date().toLocaleDateString('en-SG',{timeZone:'Asia/Singapore',year:'numeric',month:'long',day:'numeric'});\nconst hdr='<div class=\"header\"><div class=\"header-title\">Pricing Advisor &mdash; '+esc(clean(build['Project Name']))+' #'+lvl+'-'+u+'</div><div class=\"header-meta\">Generated: '+gen+' | Internal Use Only | Clarity V2 Module 7B</div></div>';\nconst advFont='<style>.page2 .advsec .tbl-note{font-size:14px;line-height:1.55}.page2 .advsec .fmv-row{font-size:15px}</style>';\nconst advPage='<div class=\"page2\">'+advFont+hdr+advSection+'</div>';\nlet done=false;\nconst anchor='launches from public reports; estimates internal.';\nconst ai=html.indexOf(anchor);\nif(ai>=0){const seq='</p></div></div>';const ci=html.indexOf(seq,ai);if(ci>=0){const at=ci+seq.length;html=html.slice(0,at)+advPage+html.slice(at);done=true;}}\nif(!done){\nconst markers=['<div class=\"page2\"><div class=\"header\"><div class=\"header-title\">Floorplan &mdash;','<div class=\"page2\"><div class=\"header\"><div class=\"header-title\">Site Plan &mdash;'];\nlet idx=-1;for(const mk of markers){const i=html.indexOf(mk);if(i>=0&&(idx<0||i<idx))idx=i;}\nif(idx<0)idx=html.indexOf('</body>');if(idx<0)idx=html.length;\nhtml=html.slice(0,idx)+advPage+html.slice(idx);\n}\n}\nreturn [{json:{...build,'PDF HTML Content':html}}];"
+      },
+      "id": "f6c7db52-f5c8-42dc-bd4f-278972e00c92",
+      "name": "Inject Advisor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        832,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "1Ct5JfYuWN7xg1zFRzHtQ8W64BTk3v7PAs1ypBrcmrS8"
+        },
+        "sheetName": {
+          "__rl": true,
+          "cachedResultName": "Master Plan Region Registry",
+          "mode": "name",
+          "value": "Master Plan Region Registry"
+        },
+        "options": {}
+      },
+      "id": "bd2819dc-de24-402b-ae13-8cae58adfadb",
+      "name": "Read Region Registry",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        704,
+        640
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "o2MayUFB8yCkikgY",
+          "name": "JK.KJK Gmail"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const subject=$node['Build PDF HTML Content'].json;\nconst regionRows=$input.all().map(i=>i.json).filter(r=>r&&String(r['Region Key']||'').trim());\nreturn [{json:{...subject,_mpRegionRows:regionRows}}];"
+      },
+      "id": "021fc831-81d1-41ed-bb29-57214091f022",
+      "name": "Stash Region",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "1Ct5JfYuWN7xg1zFRzHtQ8W64BTk3v7PAs1ypBrcmrS8"
+        },
+        "sheetName": {
+          "__rl": true,
+          "cachedResultName": "Master Plan Precinct Registry",
+          "mode": "name",
+          "value": "Master Plan Precinct Registry"
+        },
+        "options": {}
+      },
+      "id": "bcc43f66-e9f0-4828-bbc5-3405f87d13a3",
+      "name": "Read Precinct Registry",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1056,
+        464
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "o2MayUFB8yCkikgY",
+          "name": "JK.KJK Gmail"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const clean=v=>String(v==null?'':v).trim();\nconst esc=v=>String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');\nconst stash=$node['Stash Region'].json;\nconst subject={...stash};delete subject._mpRegionRows;\nconst regionRows=(stash._mpRegionRows)||[];\nconst precRows=$input.all().map(i=>i.json).filter(r=>r&&clean(r['Precinct Key']));\nconst hay=[subject['Street Name'],subject['Planning Area'],subject['District'],subject['Project Name']].map(clean).join(' ').toLowerCase();\nconst kw=r=>clean(r['Mapper Keywords']).toLowerCase().split(/[;,]/).map(s=>s.trim()).filter(Boolean);\nconst precinct=precRows.find(r=>kw(r).some(k=>k&&hay.indexOf(k)>=0))||null;\nlet region=null;\nif(precinct)region=regionRows.find(r=>clean(r['Region Key'])===clean(precinct['Region Key']))||null;\nif(!precinct){return [{json:{...subject,_mpFactsHtml:'',_mpContextHtml:'',_mpFactCorpus:'',_mpProseBody:null,_mpSkip:true}}];}\nconst parseInit=s=>clean(s).split('||').map(b=>b.trim()).filter(Boolean).map(b=>{const p=b.split('|').map(x=>x.trim());return {name:p[0]||'',type:p[1]||'',detail:p[2]||'',horizon:p[3]||''};});\nconst initRows=arr=>arr.map(i=>'<tr><td class=\"lbl\">'+esc(i.name)+(i.type?' <span class=\"psf-sub\">('+esc(i.type)+')</span>':'')+'</td><td class=\"val\" colspan=\"3\">'+esc(i.detail)+(i.horizon?' <span class=\"psf-sub\">&mdash; '+esc(i.horizon)+'</span>':'')+'</td></tr>').join('');\nconst inits=parseInit(precinct['Initiatives']);\nconst factCorpus=[clean(region&&region['Thesis']),clean(precinct['Thesis']),clean(precinct['Horizon'])].concat(inits.map(i=>i.name+' '+i.detail+' '+i.horizon)).join(' ');\nconst regionLede=region?('<p class=\"tbl-note\">'+esc(clean(region['Region Name']))+': '+esc(clean(region['Thesis']))+'</p>'):'';\nconst factsHtml='<div class=\"section\"><div class=\"section-title\">GOVERNMENT MASTER PLAN &mdash; '+esc(clean(precinct['Precinct Name']))+'</div>'+regionLede+'<p class=\"tbl-note\"><strong>'+esc(clean(precinct['Precinct Name']))+'.</strong> '+esc(clean(precinct['Thesis']))+'</p><table class=\"dt\">'+initRows(inits)+'</table></div>';\nconst ctxRows=precRows.filter(r=>clean(r['Precinct Key'])!==clean(precinct['Precinct Key'])&&clean(r['Region Key'])===clean(precinct['Region Key']));\nlet contextHtml='';\nif(ctxRows.length){const blocks=ctxRows.map(r=>'<p class=\"tbl-note\"><strong>'+esc(clean(r['Precinct Name']))+'.</strong> '+esc(clean(r['Thesis']))+'</p><table class=\"dt\">'+initRows(parseInit(r['Initiatives']))+'</table>').join('');contextHtml='<div class=\"section mp-context\"><div class=\"section-title\">WIDER AREA &mdash; '+esc(region?clean(region['Region Name']):'Surrounding Region')+'</div>'+blocks+'</div>';}\nconst data={subjectType:clean(subject['Property Subtype'])||clean(subject['Type'])||'studio',district:clean(subject['District']),tenure:clean(subject['Tenure']),precinct:clean(precinct['Precinct Name']),region:region?clean(region['Region Name']):'',precinctThesis:clean(precinct['Thesis']),regionThesis:region?clean(region['Thesis']):'',initiatives:inits.map(i=>({name:i.name,type:i.type,detail:i.detail}))};\nconst SYS='You write ONE short plain-English paragraph (max 70 words) for an internal agent brief, explaining why the government master plan initiatives listed matter for THIS specific resale unit. RULES: (1) Use ONLY the facts provided; invent nothing. (2) Do NOT state any number, figure, percentage, year, hectare, GFA or home count anywhere in your output, even if present in the facts; stay qualitative and refer to initiatives by name. (3) Refer to plans as planned or proposed, not guaranteed. (4) Connect to the unit by its location, district, tenure and that it is an existing resale home in a transforming area. (5) No headings, no markdown, no preamble. Respond with STRICT JSON only: {\"relevance\":\"...\"}.';\nconst USER='Facts (qualitative only): '+JSON.stringify(data);\nconst proseBody={model:'claude-opus-4-8',max_tokens:400,system:SYS,messages:[{role:'user',content:USER}]};\nreturn [{json:{...subject,_mpFactsHtml:factsHtml,_mpContextHtml:contextHtml,_mpFactCorpus:factCorpus,_mpProseBody:proseBody,_mpSkip:false}}];"
+      },
+      "id": "251d60ce-1824-46e1-92d5-cb0997f4211c",
+      "name": "Render Master Plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1248,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json._mpProseBody) }}",
+        "options": {}
+      },
+      "id": "40777b55-485c-4a98-9278-e02e26e078a0",
+      "name": "MP Relevance Prose",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1424,
+        640
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "eZO5407hXrrC7PlX",
+          "name": "Anthropic API (Claude Haiku)"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const clean=v=>String(v==null?'':v).trim();\nconst esc=v=>String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');\nconst render=$node['Render Master Plan'].json;\nconst build=$node['Build PDF HTML Content'].json;\nconst adv=$node['Inject Advisor'].json;\nlet html=(adv&&adv['PDF HTML Content'])||build['PDF HTML Content']||'';\nif(render._mpSkip||!render._mpFactsHtml){return [{json:{...adv,'PDF HTML Content':html}}];}\nlet relevance='';\ntry{const resp=$node['MP Relevance Prose'].json;let t='';if(resp&&Array.isArray(resp.content))t=resp.content.map(b=>b&&b.text?b.text:'').join('');else if(resp&&typeof resp.text==='string')t=resp.text;t=clean(t);if(t.indexOf('{')>=0)t=t.slice(t.indexOf('{'),t.lastIndexOf('}')+1);if(t){const o=JSON.parse(t);relevance=clean(o.relevance||'');}}catch(e){relevance='';}\nconst corpusDigits=new Set((String(render._mpFactCorpus||'').match(/\\d+/g)||[]));\nconst proseDigits=(relevance.match(/\\d+/g)||[]);\nconst leaked=proseDigits.filter(d=>!corpusDigits.has(d));\nif(leaked.length){relevance='';}\nconst proseHtml=relevance?('<p class=\"tbl-note\"><strong>Relevance to this property:</strong> '+esc(relevance)+'</p>'):'';\nconst lvl=String(build['Level']||'').padStart(2,'0');const u=String(build['Unit']||'').padStart(2,'0');\nconst gen=new Date().toLocaleDateString('en-SG',{timeZone:'Asia/Singapore',year:'numeric',month:'long',day:'numeric'});\nconst hdr='<div class=\"header\"><div class=\"header-title\">Government Master Plan &mdash; '+esc(clean(build['Project Name']))+' #'+lvl+'-'+u+'</div><div class=\"header-meta\">Generated: '+gen+' | Internal Use Only | Clarity V2 Module 7B</div></div>';\nconst footnote='<p class=\"amenity-note\">Source: URA Master Plan 2025 and related URA development control circulars. Plans are proposed and subject to change; agent review required.</p>';\nconst styleOv='<style>.page2 .mpsec .tbl-note{font-size:14px;line-height:1.55;color:#222;margin:0 0 12px 0}.page2 .mpsec .section-title{font-size:15px}.page2 .mpsec .dt td{font-size:13px;padding:7px 9px}.page2 .mpsec .amenity-note{font-size:11px;color:#444;margin-top:14px}.page2 .mpsec .section{margin-bottom:20px}.page2 .mpsec .mp-context{border-top:1px solid #bbb;padding-top:14px}.page2 .mpsec{padding-bottom:26px}</style>';\nconst mpInner=render._mpFactsHtml+proseHtml+(render._mpContextHtml||'')+footnote;\nconst mpPage='<div class=\"page2\">'+hdr+styleOv+'<div class=\"mpsec\">'+mpInner+'</div></div>';\nlet done=false;\nconst anchor='launches from public reports; estimates internal.';\nconst ai=html.indexOf(anchor);\nif(ai>=0){const seq='</p></div></div>';const ci=html.indexOf(seq,ai);if(ci>=0){const at=ci+seq.length;html=html.slice(0,at)+mpPage+html.slice(at);done=true;}}\nif(!done){const markers=['<div class=\"page2\"><div class=\"header\"><div class=\"header-title\">Pricing Advisor &mdash;','<div class=\"page2\"><div class=\"header\"><div class=\"header-title\">Floorplan &mdash;','</body>'];let idx=-1;for(const mk of markers){const i=html.indexOf(mk);if(i>=0&&(idx<0||i<idx))idx=i;}if(idx<0)idx=html.length;html=html.slice(0,idx)+mpPage+html.slice(idx);}\nreturn [{json:{...adv,'PDF HTML Content':html}}];"
+      },
+      "id": "bf2b7e8e-d71b-42a1-ac4b-1444f0d6f91f",
+      "name": "Inject Master Plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1600,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "1Ct5JfYuWN7xg1zFRzHtQ8W64BTk3v7PAs1ypBrcmrS8"
+        },
+        "sheetName": {
+          "__rl": true,
+          "cachedResultName": "Neighbour Asking Snapshot",
+          "mode": "name",
+          "value": "Neighbour Asking Snapshot"
+        },
+        "options": {}
+      },
+      "id": "cb4309b6-8384-4b44-a32b-23aa6dfa0570",
+      "name": "Read Neighbour Asking",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1776,
+        640
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "o2MayUFB8yCkikgY",
+          "name": "JK.KJK Gmail"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const build=$node['Build PDF HTML Content'].json;\nconst mp=$node['Inject Master Plan'].json;\nlet html=(mp&&mp['PDF HTML Content'])||build['PDF HTML Content']||'';\nconst clean=v=>String(v==null?'':v).trim();\nconst esc=v=>String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');\nconst comma=n=>Number(n).toLocaleString('en-SG');\nconst titleCase=s=>String(s||'').toLowerCase().replace(/\\b\\w/g,c=>c.toUpperCase());\nconst pnum=v=>{const n=Number(String(v==null?'':v).replace(/[^0-9.\\-]/g,''));return Number.isFinite(n)&&n>0?n:null;};\nfunction _compSet(raw,ss,sp){var out=[];for(var qi=0;qi<raw.length;qi++){var c=raw[qi];var cpsf=pnum(c['Asking PSF']);if(!cpsf)continue;var inc=clean(c['Include In Analysis']).toUpperCase();if(inc&&inc!=='YES')continue;var st=clean(c['Listing Status']).toUpperCase();if(st&&st!=='ACTIVE')continue;if(clean(c['Own Listing']).toUpperCase()==='YES')continue;var cs=pnum(c['Size']),cp=pnum(c['Asking Price']);if(ss&&sp&&cs===ss&&cp===sp)continue;out.push({project:clean(c['Project Name']),size:cs,price:cp,psf:cpsf,badge:clean(c['Price Badge'])});}out.sort(function(a,b){return a.psf-b.psf;});return out;}\nfunction norm(v){return String(v==null?'':v).toLowerCase().replace(/&/g,'and').replace(/@/g,' at ').replace(/[^a-z0-9]+/g,' ').trim();}\nfunction median(arr){if(!arr.length)return null;const a=arr.slice().sort((x,y)=>x-y);const m=Math.floor(a.length/2);return a.length%2?a[m]:(a[m-1]+a[m])/2;}\nconst subjSize=pnum(build['Size']);\nconst projName=clean(build['Project Name']);\nconst subjNorm=norm(projName);\nconst BAND=0.25;\nlet rc=null;try{const r=clean(build['Radius Comparables JSON']);if(r)rc=JSON.parse(r);}catch(e){rc=null;}\nconst distByNorm={};const setNorms=new Set();setNorms.add(subjNorm);\nif(rc&&Array.isArray(rc.comps)){for(const c of rc.comps){const p=clean(c.project||c.projectName||c.name);if(!p)continue;const k=norm(p);setNorms.add(k);if(c.distanceM!=null)distByNorm[k]=Number(c.distanceM);}}\ndistByNorm[subjNorm]=0;\nconst arows=$input.all().map(i=>i.json).filter(r=>r&&(r['Listing ID']||r['Project Name']));\nconst matched=arows.filter(r=>setNorms.has(norm(r['Project Norm']||r['Project Name'])));\nlet latestTs='';for(const r of matched){const ts=clean(r['Snapshot Timestamp']);if(ts&&ts>latestTs)latestTs=ts;}\nconst batch=matched.filter(r=>clean(r['Snapshot Timestamp'])===latestTs);\nlet askingSection='';\nif(latestTs&&batch.length){\n  const groups={};\n  for(const r of batch){\n    const k=norm(r['Project Norm']||r['Project Name']);\n    const size=pnum(r['Size Sqft']);const psf=pnum(r['Asking PSF']);const price=pnum(r['Asking Price']);\n    const inBand=(subjSize&&size)?(Math.abs(size-subjSize)/subjSize<=BAND):(clean(r['In Size Band']).toUpperCase()==='YES');\n    if(!inBand||!psf)continue;\n    if(!groups[k])groups[k]={name:clean(r['Project Name'])||titleCase(k),psfs:[],prices:[],sizes:[],change:0,nNew:0,n:0};\n    const g=groups[k];g.psfs.push(psf);if(price)g.prices.push(price);if(size)g.sizes.push(size);g.n++;\n    const dir=clean(r['Price Direction']).toUpperCase();const chg=Number(r['Price Change']);\n    if(dir==='NEW')g.nNew++;if(Number.isFinite(chg))g.change+=chg;\n  }\n  const devs=Object.keys(groups).map(k=>{\n    const g=groups[k];const med=median(g.psfs);\n    return {nm:k,name:g.name,med:med,\n      minPsf:g.psfs.length?Math.min.apply(null,g.psfs):null,maxPsf:g.psfs.length?Math.max.apply(null,g.psfs):null,\n      minP:g.prices.length?Math.min.apply(null,g.prices):null,maxP:g.prices.length?Math.max.apply(null,g.prices):null,\n      minSz:g.sizes.length?Math.min.apply(null,g.sizes):null,maxSz:g.sizes.length?Math.max.apply(null,g.sizes):null,\n      n:g.n,dir:(g.n&&g.nNew===g.n)?'New':(g.change<0?'Down':(g.change>0?'Up':'Flat')),\n      dist:(distByNorm[k]!=null?distByNorm[k]:null),subject:(k===subjNorm)};\n  }).filter(d=>d.med);\n  if(devs.length){\n    devs.sort((a,b)=>a.med-b.med);\n    const fmtPrice=v=>v?('SGD '+comma(Math.round(v))):'n/a';\n    const psfSub=(lo,hi)=>(lo&&hi&&Math.round(lo)!==Math.round(hi))?('<div class=\"psf-sub\">'+comma(Math.round(lo))+'&ndash;'+comma(Math.round(hi))+'</div>'):'';\n    const szCell=(lo,hi)=>{if(!lo&&!hi)return 'n/a';if(!lo||!hi||Math.round(lo)===Math.round(hi))return comma(Math.round(lo||hi))+' sqft';return comma(Math.round(lo))+'&ndash;'+comma(Math.round(hi))+' sqft';};\n    const prCell=(lo,hi)=>{if(!lo&&!hi)return 'n/a';if(!lo||!hi||Math.round(lo)===Math.round(hi))return fmtPrice(lo||hi);return fmtPrice(lo)+' &ndash; '+fmtPrice(hi);};\n    const body=devs.map(d=>{\n      const cls=d.subject?' class=\"used\"':'';const tag=d.subject?' <span class=\"mine\">(subject)</span>':'';\n      const distStr=(d.dist===0)?'&mdash;':(d.dist!=null?comma(d.dist)+' m':'n/a');\n      return '<tr'+cls+'><td>'+esc(titleCase(d.name))+tag+'</td><td class=\"c\">'+distStr+'</td><td class=\"r\">SGD '+comma(Math.round(d.med))+' psf'+psfSub(d.minPsf,d.maxPsf)+'</td><td class=\"c\">'+szCell(d.minSz,d.maxSz)+'</td><td class=\"c\">'+d.n+'</td><td class=\"r\">'+prCell(d.minP,d.maxP)+'</td><td class=\"c\">'+d.dir+'</td></tr>';\n    }).join('');\n    let tsDisp=latestTs;try{tsDisp=new Date(latestTs).toLocaleDateString('en-SG',{timeZone:'Asia/Singapore',year:'numeric',month:'long',day:'numeric'});}catch(e){}\n    const intro='<p class=\"tbl-note\">Active asking listings for nearby developments within ~1 km, limited to the studio band (similar size, &plusmn;25%). Median asking PSF is across each development&rsquo;s active studio-band listings, with the PSF range beneath; size range and asking price range span those listings. Trend compares each listing to the previous snapshot. Snapshot: '+esc(tsDisp)+'. Subject shown in bold for reference. This is a separate &plusmn;25% studio-band snapshot of nearby developments &mdash; a broader, different listing set than the same-development Competitor Snapshot, so its counts and price range differ.</p>';\n    askingSection='<div class=\"section keepwhole\"><div class=\"section-title\">NEARBY ASKING &mdash; STUDIO BAND (ACTIVE LISTINGS)</div>'+intro+'<table class=\"grid\"><thead><tr><th>Development</th><th class=\"c\">Distance</th><th class=\"r\">Asking Median PSF</th><th class=\"c\">Size Range</th><th class=\"c\">Listings</th><th class=\"r\">Asking Price Range</th><th class=\"c\">Trend</th></tr></thead><tbody>'+body+'</tbody></table><p class=\"amenity-note\">Source: PropertyGuru snapshot (asking, not transacted). Active listings only; a development can have several ads per unit, so listing counts may overstate distinct units. Internal reference; agent review required.</p></div>';\n  }\n}\nconst TITLE_MARK='<div class=\"header-title\">Market Trend &amp; Studio Comparables &mdash;';\nconst titleIdx=html.indexOf(TITLE_MARK);\nlet placed=false;\nif(titleIdx>=0){\n  const p4start=html.lastIndexOf('<div class=\"page2\">',titleIdx);\n  const p4next=html.indexOf('<div class=\"page2\">',titleIdx+1);\n  if(p4start>=0&&p4next>p4start){\n    let p4=html.slice(p4start,p4next);\n    if(askingSection){ if(p4.slice(-6)==='</div>')p4=p4.slice(0,-6)+askingSection+'</div>'; else p4=p4+askingSection; }\n    p4=p4.replace('Market Trend &amp; Studio Comparables &mdash;','Studio Comparables &amp; Nearby Asking &mdash;');\n    html=html.slice(0,p4start)+p4+html.slice(p4next);\n    placed=true;\n  }\n}\nif(!placed&&askingSection){\n  const lvl=String(build['Level']||'').padStart(2,'0');const un=String(build['Unit']||'').padStart(2,'0');\n  const genDate=new Date().toLocaleDateString('en-SG',{timeZone:'Asia/Singapore',year:'numeric',month:'long',day:'numeric'});\n  const hdr='<div class=\"header\"><div class=\"header-title\">Nearby Asking &mdash; Studio Band &mdash; '+esc(projName)+' #'+lvl+'-'+un+'</div><div class=\"header-meta\">Generated: '+genDate+' | Internal Use Only | Clarity V2 Module 7B</div></div>';\n  const pageHtml='<div class=\"page2\">'+hdr+askingSection+'</div>';\n  let done=false;const anchor='launches from public reports; estimates internal.';const ai=html.indexOf(anchor);\n  if(ai>=0){const seq='</p></div></div>';const ci=html.indexOf(seq,ai);if(ci>=0){const at=ci+seq.length;html=html.slice(0,at)+pageHtml+html.slice(at);done=true;}}\n  if(!done){const i=html.indexOf('<div class=\"page2\"><div class=\"header\"><div class=\"header-title\">Floorplan &mdash;');const idx=i>=0?i:(html.indexOf('</body>')>=0?html.indexOf('</body>'):html.length);html=html.slice(0,idx)+pageHtml+html.slice(idx);}\n}\nhtml=html.replace('<div class=\"header-title\">Development Activity &amp; District Supply &mdash;','<div class=\"header-title\">Nearby &mdash; Overall Activity &amp; District Supply (All Sizes) &mdash;');\nconst override='<style>'+\n'.page2{page-break-before:always!important}.page2.sheetbreak{page-break-before:always!important}'+\n'.page2 .header{page-break-after:avoid;break-after:avoid-page}'+\n'.grid tr{page-break-inside:avoid;break-inside:avoid}table.grid thead{display:table-header-group}'+\n'.dt tr{page-break-inside:avoid!important;break-inside:avoid!important}'+\n'.page2 .section.keepwhole{page-break-inside:avoid!important;break-inside:avoid!important}'+\n'.graph-wrap{page-break-inside:avoid;break-inside:avoid}svg{break-inside:avoid}'+\n'img{page-break-inside:avoid;break-inside:avoid;max-width:100%}'+\n'.section-title{page-break-after:avoid!important;break-after:avoid!important;font-size:13px!important}'+\n'body{font-size:13px!important}.header-title{font-size:20px!important}.header-sub{font-size:13px!important}.header-meta{font-size:10px!important}'+\n'.grid{font-size:13px!important}.grid th{font-size:12.5px!important}.dt{font-size:12.5px!important}'+\n'.tbl-note{font-size:12px!important}.amenity-note{font-size:10.5px!important}.graph-note{font-size:10.5px!important}.psf-sub{font-size:10.5px!important}'+\n'.fmv-row{font-size:13px!important}.disclaimer{font-size:10px!important}.mine{font-size:10px!important}.subhead{font-size:10.5px!important}'+\n'.anx{font-size:10px!important}.anx-h{font-size:11px!important}'+\n'.advsec .tbl-note{font-size:13px!important;line-height:1.45!important}.advsec .fmv-row{font-size:13px!important}.advsec .section-title{font-size:13px!important}'+\n'.mpsec .tbl-note{font-size:15px!important}.mpsec .section-title{font-size:15px!important}.mpsec .dt td{font-size:13.5px!important}.mpsec .amenity-note{font-size:11.5px!important}'+\n'.pbadge{display:inline-block;font-size:9px;font-weight:700;line-height:1.3;border:1px solid #000;border-radius:3px;padding:0 4px;margin-left:6px;vertical-align:middle;text-transform:uppercase;letter-spacing:.03em;color:#000;white-space:nowrap}'+\n'</style>';\nif(html.indexOf('</head>')>=0)html=html.replace('</head>',override+'</head>'); else html=override+html;\nfunction tagSheet(marker){const ti=html.indexOf(marker);if(ti<0)return;const ds=html.lastIndexOf('<div class=\"page2\">',ti);if(ds<0)return;html=html.slice(0,ds)+'<div class=\"page2 sheetbreak\">'+html.slice(ds+'<div class=\"page2\">'.length);}\ntagSheet('<div class=\"header-title\">All URA Transactions');\ntagSheet('<div class=\"header-title\">Competitor Snapshot');\ntagSheet('<div class=\"header-title\">Studio Comparables &amp; Nearby Asking');\n\n// ===== Split Development Activity and District New-Supply onto separate sheets =====\n// Only splits when both tables currently share one page (guards the supply-only case).\n(function(){\n  const SUP_MARK='<div class=\"section-title\">DISTRICT NEW-SUPPLY';\n  const si=html.indexOf(SUP_MARK);\n  if(si<0)return;\n  const pageStart=html.lastIndexOf('<div class=\"page2',si);\n  if(pageStart<0)return;\n  if(html.slice(pageStart,si).indexOf('DEVELOPMENT ACTIVITY')<0)return;\n  const secStart=html.lastIndexOf('<div class=\"section\">',si);\n  if(secStart<0||secStart<=pageStart)return;\n  const lvlD=String(build['Level']||'').padStart(2,'0');\n  const unD=String(build['Unit']||'').padStart(2,'0');\n  const genD=new Date().toLocaleDateString('en-SG',{timeZone:'Asia/Singapore',year:'numeric',month:'long',day:'numeric'});\n  const dHdr='<div class=\"header\"><div class=\"header-title\">District New-Supply &amp; Land Benchmarks &mdash; '+esc(projName)+' #'+lvlD+'-'+unD+'</div><div class=\"header-meta\">Generated: '+genD+' | Internal Use Only | Clarity V2 Module 7B</div></div>';\n  html=html.slice(0,secStart)+'</div><div class=\"page2 sheetbreak\">'+dHdr+html.slice(secStart);\n})();\n\n// ===== Price Badge on Competitor Snapshot (reads _competitorListings from Fold Competitors) =====\n// Rebuilds ONLY the Competitor Snapshot tbody, mirroring Build/page3 row logic exactly and\n// appending a <span class=\"pbadge\"> when a listing carries a Price Badge. When every badge is\n// blank (all firm-priced) the rebuilt rows are byte-identical to page3 -> zero visible change.\ntry{\n  const comps=(($node['Fold Competitors']||{}).json||{})._competitorListings;\n  if(Array.isArray(comps)&&comps.length){\n    const cfmtPrice=v=>{if(!v)return 'n/a';return 'SGD '+comma(Math.round(Number(v)));};\n    const _ss=pnum(build['Size']),_sp=pnum(build['Price']),_spsf=pnum(build['PSF']);\n    const compRows=_compSet(comps,_ss,_sp);\n    const _subj={project:clean(build['Project Name']),size:_ss,price:_sp,psf:_spsf,own:true,badge:''};\n    const _allRows=compRows.map(c=>({project:c.project,size:c.size,price:c.price,psf:c.psf,own:false,badge:c.badge})).concat([_subj]).sort((a,b)=>a.psf-b.psf);\n    const newRows=_allRows.map(c=>{\n      const cls=c.own?' class=\"used\"':'';\n      const tag=c.own?' <span class=\"mine\">(your listing)</span>':'';\n      const btag=(!c.own&&c.badge)?(' <span class=\"pbadge\">'+esc(c.badge)+'</span>'):'';\n      return '<tr'+cls+'><td>'+esc(c.project)+tag+btag+'</td><td class=\"r\">'+(c.size?comma(c.size):'n/a')+'</td><td class=\"r\">'+cfmtPrice(c.price)+'</td><td class=\"r\">SGD '+comma(Math.round(c.psf))+'</td></tr>';\n    }).join('');\n    const COMP_TITLE='<div class=\"header-title\">Competitor Snapshot &mdash;';\n    const cti=html.indexOf(COMP_TITLE);\n    if(cti>=0&&newRows){\n      const tb0=html.indexOf('<tbody>',cti);\n      const tb1=html.indexOf('</tbody>',tb0);\n      if(tb0>=0&&tb1>tb0){\n        html=html.slice(0,tb0)+'<tbody>'+newRows+'</tbody>'+html.slice(tb1+'</tbody>'.length);\n      }\n    }\n  }\n}catch(e){}\n\nreturn [{json:{...mp,'PDF HTML Content':html}}];"
+      },
+      "id": "574e88c8-60a8-43b7-a1f5-dadf46b18eee",
+      "name": "Inject Neighbour Asking",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1952,
+        640
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read Property Registry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Property Registry": {
+      "main": [
+        [
+          {
+            "node": "Select 1 Pending PDF Row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare PDF Registry Update": {
+      "main": [
+        [
+          {
+            "node": "Update Property Registry - PDF Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload PDF to Asset Folder": {
+      "main": [
+        [
+          {
+            "node": "Prepare PDF Registry Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate PDF from HTML": {
+      "main": [
+        [
+          {
+            "node": "Upload PDF to Asset Folder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select 1 Pending PDF Row": {
+      "main": [
+        [
+          {
+            "node": "List Asset Folder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Asset Folder": {
+      "main": [
+        [
+          {
+            "node": "Resolve Plans",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Plans": {
+      "main": [
+        [
+          {
+            "node": "Download Floorplan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Floorplan": {
+      "main": [
+        [
+          {
+            "node": "FP to b64",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FP to b64": {
+      "main": [
+        [
+          {
+            "node": "Download Siteplan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download Siteplan": {
+      "main": [
+        [
+          {
+            "node": "Assemble Plans",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Property Registry - PDF Fields": {
+      "main": [
+        [
+          {
+            "node": "Collect Stale PDF IDs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect Stale PDF IDs": {
+      "main": [
+        [
+          {
+            "node": "Delete Stale PDFs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assemble Plans": {
+      "main": [
+        [
+          {
+            "node": "Read Competitor Listings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Competitor Listings": {
+      "main": [
+        [
+          {
+            "node": "Fold Competitors",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fold Competitors": {
+      "main": [
+        [
+          {
+            "node": "Read District Supply Registry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read District Supply Registry": {
+      "main": [
+        [
+          {
+            "node": "Render Supply Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render Supply Page": {
+      "main": [
+        [
+          {
+            "node": "Build PDF HTML Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build PDF HTML Content": {
+      "main": [
+        [
+          {
+            "node": "Build Advisor Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Advisor Input": {
+      "main": [
+        [
+          {
+            "node": "AI Advisor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Advisor": {
+      "main": [
+        [
+          {
+            "node": "Inject Advisor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Inject Advisor": {
+      "main": [
+        [
+          {
+            "node": "Read Region Registry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Region Registry": {
+      "main": [
+        [
+          {
+            "node": "Stash Region",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stash Region": {
+      "main": [
+        [
+          {
+            "node": "Read Precinct Registry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Precinct Registry": {
+      "main": [
+        [
+          {
+            "node": "Render Master Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render Master Plan": {
+      "main": [
+        [
+          {
+            "node": "MP Relevance Prose",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MP Relevance Prose": {
+      "main": [
+        [
+          {
+            "node": "Inject Master Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Inject Master Plan": {
+      "main": [
+        [
+          {
+            "node": "Read Neighbour Asking",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Neighbour Asking": {
+      "main": [
+        [
+          {
+            "node": "Inject Neighbour Asking",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Inject Neighbour Asking": {
+      "main": [
+        [
+          {
+            "node": "Generate PDF from HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "dcc421ca-31c9-44dd-8a2d-2a9ae666b60c",
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp",
+    "instanceId": "c44d140d8896d32b74bbf377591ffd97db6aa832a43e46843e94465e73a6ded8"
+  },
+  "nodeGroups": [],
+  "id": "RXo5KVZlxPh7Hfyh",
+  "tags": []
+}
